@@ -1,0 +1,26 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - gosec
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    gosec:
+      excludes:
+        - G706 # log-injection-via-taint — too noisy for env-var-driven configuration logs
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
