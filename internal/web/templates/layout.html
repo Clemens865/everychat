@@ -1,0 +1,19 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} — Everychat</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Everychat</a>
+    {{if .Email}}<span class="user">{{.Email}}</span>{{end}}
+  </header>
+  <main class="container">
+    {{template "content" .}}
+  </main>
+</body>
+</html>{{end}}

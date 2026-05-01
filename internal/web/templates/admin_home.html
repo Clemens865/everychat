@@ -1,0 +1,13 @@
+{{define "content"}}
+<section class="card">
+  <h1>Welcome, {{.Email}}</h1>
+  <p>You're signed in. Phase 1 ships an empty admin shell — bot authoring lands in Phase 2.</p>
+  <button class="primary" hx-get="/admin/new-bot" hx-target="#panel" hx-swap="innerHTML" disabled title="Phase 2">
+    Create your first bot
+  </button>
+  <div id="panel"></div>
+  <form method="POST" action="/logout" class="logout">
+    <button type="submit" class="link">Sign out</button>
+  </form>
+</section>
+{{end}}
