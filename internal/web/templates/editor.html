@@ -1,0 +1,172 @@
+{{define "page"}}
+
+{{/* ─── Publish-gate banner ─── */}}
+{{if .GateBlocked}}
+  <div class="gate gate--blocked" role="status">
+    <span class="gate__icon" aria-hidden="true">!</span>
+    <div class="gate__text">
+      Veröffentlichung blockiert. <span class="muted">{{.GateReason}}</span>
+    </div>
+    <button class="gate__cta">Bericht öffnen</button>
+  </div>
+{{else}}
+  <div class="gate" role="status">
+    <span class="gate__icon" aria-hidden="true">!</span>
+    <div class="gate__text">
+      Entwurf — noch keine Evaluation. <span class="muted">{{.GateReason}}</span>
+    </div>
+    <button class="gate__cta">Evals ausführen</button>
+  </div>
+{{end}}
+
+<main class="workbench">
+
+  {{/* ─── Column 1 — Settings rail ─── */}}
+  <aside class="col rail" aria-label="Bot-Einstellungen">
+    <section class="rail__group rail__group--open">
+      <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Identität</header>
+      <div class="rail__body">
+        <div class="rail__row"><div class="rail__label">Bot</div><div class="rail__value mono">{{.Bot.Name}}</div></div>
+        <div class="rail__row"><div class="rail__label">Status</div><div class="rail__value">
+          {{if eq .Bot.Status "published"}}<span class="pill pill--published">Live</span>
+          {{else}}<span class="pill pill--draft">Entwurf</span>{{end}}
+        </div></div>
+      </div>
+    </section>
+
+    <section class="rail__group rail__group--open">
+      <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">
+        <span>Compliance</span>
+        {{if .ComplianceMissing}}<span class="rail__warn">{{.ComplianceMissing}} fehlen</span>{{end}}
+      </header>
+      <div class="rail__body" hx-include="this">
+        <div class="rail__row">
+          <div class="rail__label">Datenschutz-URL</div>
+          <input class="rail__input{{if not .Bot.PrivacyPolicyURL.Valid}} rail__input--missing{{end}}"
+                 name="privacy_policy_url"
+                 placeholder="https://…/datenschutz"
+                 value="{{if .Bot.PrivacyPolicyURL.Valid}}{{.Bot.PrivacyPolicyURL.String}}{{end}}"
+                 hx-post="/admin/bots/{{.Bot.ID}}/compliance"
+                 hx-trigger="change"
+                 hx-swap="none">
+        </div>
+        <div class="rail__row">
+          <div class="rail__label">AGB-URL</div>
+          <input class="rail__input{{if not .Bot.AGBURL.Valid}} rail__input--missing{{end}}"
+                 name="agb_url"
+                 placeholder="https://…/agb"
+                 value="{{if .Bot.AGBURL.Valid}}{{.Bot.AGBURL.String}}{{end}}"
+                 hx-post="/admin/bots/{{.Bot.ID}}/compliance"
+                 hx-trigger="change"
+                 hx-swap="none">
+        </div>
+        <div class="rail__row">
+          <div class="rail__label">Aufbewahrung</div>
+          <div class="rail__value mono">{{.Bot.RetentionDays}} Tage</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="rail__group rail__group--open">
+      <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Wissensbasis</header>
+      <div class="rail__body">
+        <div class="rail__row"><div class="rail__label">Inhalte</div><div class="rail__value mono">{{.ChunkCount}} Chunks</div></div>
+      </div>
+    </section>
+
+    <section class="rail__group">
+      <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Evaluation</header>
+      <div class="rail__body">
+        <div class="rail__row">
+          <div class="rail__label">Schwelle</div>
+          <div class="rail__value mono">{{printf "%.2f" .Bot.EvalThreshold}}</div>
+        </div>
+        <div class="rail__row">
+          <div class="rail__label">Letzter Lauf</div>
+          <div class="rail__value" style="color:var(--muted)">{{.LastEvalLabel}}</div>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  {{/* ─── Column 2 — Prompt workbench ─── */}}
+  <section class="col pane" aria-label="System-Prompt">
+    <header class="pane__head">
+      <div class="tabs" role="tablist">
+        <button class="tab tab--active" role="tab" data-tab="draft">Entwurf</button>
+        <button class="tab" role="tab" data-tab="published">Veröffentlicht</button>
+      </div>
+    </header>
+
+    <textarea id="draft-editor"
+              class="editor-text"
+              spellcheck="false"
+              hx-post="/admin/bots/{{.Bot.ID}}/prompt/draft"
+              hx-trigger="keyup changed delay:800ms"
+              hx-swap="none"
+              name="draft_prompt">{{.Bot.DraftPrompt}}</textarea>
+
+    <footer class="pane__foot">
+      <div class="save-state" id="save-state">
+        <span class="save-state__dot"></span>
+        <span id="save-state-text">Gespeichert</span>
+      </div>
+      <button class="ghost-btn"
+              hx-post="/admin/bots/{{.Bot.ID}}/prompt/generate"
+              hx-target="#draft-editor"
+              hx-swap="outerHTML"
+              hx-indicator="#gen-indicator">
+        <span id="gen-indicator" class="htmx-indicator" style="display:none">Generiert…</span>
+        <span>Neu generieren</span>
+      </button>
+    </footer>
+  </section>
+
+  {{/* ─── Column 3 — Stage placeholder (Sprint 6 fills with widget canvas) ─── */}}
+  <section class="col stage">
+    <header class="stage__head">Live-Vorschau · Entwurf</header>
+    <div class="stage__placeholder">
+      <h3>Wird in Sprint 6 aktiviert</h3>
+      <p>Hier rendert das eingebettete Chat-Widget — eine 1:1-Vorschau dessen, was der Kunde später als <code>&lt;script&gt;</code>-Snippet einbettet. RAG-Antworten streamen via SSE.</p>
+    </div>
+  </section>
+
+</main>
+
+<script type="application/json" id="prompt-data">
+{"draft": {{.DraftPromptJSON}}, "published": {{.PublishedPromptJSON}}}
+</script>
+<script>
+  // Tabs (Veröffentlicht is read-only — swaps content client-side).
+  // Server emits JSON in a separate <script type="application/json"> block
+  // so the prompt content goes through JSON.parse, not into JS via splicing.
+  const _data = JSON.parse(document.getElementById('prompt-data').textContent);
+  const draftPrompt = _data.draft;
+  const publishedPrompt = _data.published;
+  const editor = document.getElementById('draft-editor');
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('tab--active'));
+      t.classList.add('tab--active');
+      const which = t.dataset.tab;
+      editor.value = (which === 'draft') ? draftPrompt : publishedPrompt;
+      editor.readOnly = (which !== 'draft');
+    });
+  });
+
+  // Autosave indicator: show "Speichert…" on input, "Gespeichert" after htmx settles.
+  const saveText = document.getElementById('save-state-text');
+  const saveDot  = document.querySelector('#save-state .save-state__dot');
+  editor.addEventListener('input', () => {
+    saveText.textContent = 'Ungespeicherte Änderungen';
+    saveDot.classList.add('save-state__dot--dirty');
+  });
+  document.body.addEventListener('htmx:afterRequest', e => {
+    if (e.detail.elt === editor && e.detail.successful) {
+      saveText.textContent = 'Gespeichert';
+      saveDot.classList.remove('save-state__dot--dirty');
+    }
+  });
+</script>
+
+{{end}}

@@ -6,18 +6,23 @@ package web
 import (
 	"crypto/rand"
 	"crypto/subtle"
+	"database/sql"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/clemenshoenig/everychat/internal/auth"
+	"github.com/clemenshoenig/everychat/internal/prompt"
+	"github.com/clemenshoenig/everychat/internal/storage"
 )
 
 //go:embed templates/*.html
@@ -34,19 +39,28 @@ type Server struct {
 	pages     map[string]*template.Template
 	links     *auth.MagicLinks
 	sessions  *auth.Sessions
+	db        *sql.DB
+	prompt    *prompt.Generator
 	staticSub fs.FS
 }
 
-// New constructs a Server with the provided auth helpers.
-func New(links *auth.MagicLinks, sessions *auth.Sessions) (*Server, error) {
-	pageNames := []string{"login.html", "login_sent.html", "admin_home.html"}
-	pages := make(map[string]*template.Template, len(pageNames))
-	for _, name := range pageNames {
-		t, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+name)
+// New constructs a Server with the provided dependencies.
+func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *prompt.Generator) (*Server, error) {
+	// Phase 1 pages share layout.html; the editor uses its own layout.
+	type pagespec struct{ name, layout string }
+	specs := []pagespec{
+		{"login.html", "layout.html"},
+		{"login_sent.html", "layout.html"},
+		{"admin_home.html", "layout.html"},
+		{"editor.html", "layout_editor.html"},
+	}
+	pages := make(map[string]*template.Template, len(specs))
+	for _, sp := range specs {
+		t, err := template.ParseFS(templateFS, "templates/"+sp.layout, "templates/"+sp.name)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", name, err)
+			return nil, fmt.Errorf("parse %s: %w", sp.name, err)
 		}
-		pages[name] = t
+		pages[sp.name] = t
 	}
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
@@ -56,6 +70,8 @@ func New(links *auth.MagicLinks, sessions *auth.Sessions) (*Server, error) {
 		pages:     pages,
 		links:     links,
 		sessions:  sessions,
+		db:        db,
+		prompt:    gen,
 		staticSub: staticSub,
 	}, nil
 }
@@ -71,6 +87,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/auth/verify", s.verify)
 	mux.HandleFunc("/logout", s.logout)
 	mux.Handle("/admin", s.sessions.Require(http.HandlerFunc(s.admin)))
+	mux.Handle("/admin/bots/", s.sessions.Require(http.HandlerFunc(s.botRoutes)))
 	mux.HandleFunc("/", s.root)
 
 	return mux
@@ -150,10 +167,203 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 	addr := auth.SessionEmail(r.Context())
+	bots, err := storage.ListBots(r.Context(), s.db)
+	if err != nil {
+		log.Printf("admin: list bots: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	s.render(w, "admin_home.html", map[string]any{
 		"Title": "Admin",
 		"Email": addr,
+		"Bots":  bots,
 	})
+}
+
+// botRoutes is a tiny path router for /admin/bots/{id}/...
+// We avoid a third-party router for now; chi/mux can come in Phase 3.
+func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/admin/bots/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.Split(rest, "/")
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	tail := ""
+	if len(parts) > 1 {
+		tail = strings.Join(parts[1:], "/")
+	}
+
+	switch tail {
+	case "":
+		if r.Method == http.MethodGet {
+			s.editor(w, r, id)
+			return
+		}
+	case "prompt/draft":
+		if r.Method == http.MethodPost {
+			s.savePromptDraft(w, r, id)
+			return
+		}
+	case "prompt/generate":
+		if r.Method == http.MethodPost {
+			s.generatePrompt(w, r, id)
+			return
+		}
+	case "prompt/publish":
+		if r.Method == http.MethodPost {
+			s.publishPrompt(w, r, id)
+			return
+		}
+	case "compliance":
+		if r.Method == http.MethodPost {
+			s.saveCompliance(w, r, id)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+// editor renders the bot-editor workbench.
+func (s *Server) editor(w http.ResponseWriter, r *http.Request, id int64) {
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("editor: load bot %d: %v", id, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chunkCount, _ := storage.CountChunks(r.Context(), s.db, id)
+
+	missing := 0
+	if !bot.PrivacyPolicyURL.Valid || strings.TrimSpace(bot.PrivacyPolicyURL.String) == "" {
+		missing++
+	}
+	if !bot.AGBURL.Valid || strings.TrimSpace(bot.AGBURL.String) == "" {
+		missing++
+	}
+
+	gateBlocked := false
+	gateReason := "Goldfragen ausführen, dann veröffentlichen."
+	if missing > 0 {
+		gateReason = fmt.Sprintf("%d Compliance-Felder offen.", missing)
+	}
+
+	// JSON-encode prompts for the client-side tab swap. We render them
+	// inside <script type="application/json"> blocks (see editor.html)
+	// rather than splicing into a JS expression — keeps the boundary
+	// safe even though only authenticated admins can edit prompts.
+	draftJSON, _ := json.Marshal(bot.DraftPrompt)
+	publishedJSON, _ := json.Marshal(bot.SystemPrompt)
+
+	s.render(w, "editor.html", map[string]any{
+		"Title":               bot.Name,
+		"Email":               auth.SessionEmail(r.Context()),
+		"Bot":                 bot,
+		"ChunkCount":          chunkCount,
+		"ComplianceMissing":   missing,
+		"GateBlocked":         gateBlocked,
+		"GateReason":          gateReason,
+		"LastEvalLabel":       "noch nie",
+		"DraftPromptJSON":     string(draftJSON),
+		"PublishedPromptJSON": string(publishedJSON),
+	})
+}
+
+func (s *Server) savePromptDraft(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 256*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	draft := r.PostFormValue("draft_prompt")
+	if err := storage.UpdateDraftPrompt(r.Context(), s.db, id, draft); err != nil {
+		log.Printf("savePromptDraft: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) generatePrompt(w http.ResponseWriter, r *http.Request, id int64) {
+	if s.prompt == nil {
+		http.Error(w, "prompt generator not configured", http.StatusServiceUnavailable)
+		return
+	}
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	draft, err := s.prompt.Draft(r.Context(), prompt.Bot{
+		ID:   bot.ID,
+		Name: bot.Name,
+	})
+	if err != nil {
+		log.Printf("generatePrompt: %v", err)
+		http.Error(w, "generation failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if err := storage.UpdateDraftPrompt(r.Context(), s.db, id, draft); err != nil {
+		log.Printf("generatePrompt: persist: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	// Return a fresh editor textarea so HTMX can swap it in (outerHTML).
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<textarea id="draft-editor" class="editor-text" spellcheck="false" `+
+		`hx-post="/admin/bots/%d/prompt/draft" hx-trigger="keyup changed delay:800ms" `+
+		`hx-swap="none" name="draft_prompt">%s</textarea>`,
+		id, template.HTMLEscapeString(draft))
+}
+
+// publishPrompt is a Sprint-5 stub: the gate logic lands in Sprint 6.
+// Right now it always refuses publish unless compliance URLs are set,
+// matching the rail's gate banner intent.
+func (s *Server) publishPrompt(w http.ResponseWriter, r *http.Request, id int64) {
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !bot.PrivacyPolicyURL.Valid || !bot.AGBURL.Valid {
+		http.Error(w, "Publish-Gate: Datenschutz-URL und AGB-URL erforderlich", http.StatusPreconditionFailed)
+		return
+	}
+	// Eval gate stays pending until Sprint 6 wires eval_runs lookup.
+	http.Error(w, "Publish-Gate: Eval-Lauf ausstehend (Sprint 6)", http.StatusPreconditionFailed)
+}
+
+func (s *Server) saveCompliance(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	privacy := strings.TrimSpace(r.PostFormValue("privacy_policy_url"))
+	agb := strings.TrimSpace(r.PostFormValue("agb_url"))
+	if err := storage.SetCompliance(r.Context(), s.db, id, privacy, agb); err != nil {
+		log.Printf("saveCompliance: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, msg string) {

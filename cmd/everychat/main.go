@@ -14,6 +14,7 @@ import (
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/email"
 	"github.com/clemenshoenig/everychat/internal/llm"
+	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
 	"github.com/clemenshoenig/everychat/internal/web"
 )
@@ -41,13 +42,17 @@ func main() {
 	links := auth.NewMagicLinks(db, sender, baseURL)
 	sessions := auth.NewSessions(db)
 
-	// LLM gateway — used by Phase 2 sprints (eval, prompt drafting, sandbox).
-	// Phase 1 routes don't call it, but constructing it here surfaces config
-	// errors at boot rather than on first request.
+	// LLM gateway — chat + embeddings.
 	llmClient := llm.NewLiteLLMClient(litellmURL)
-	_ = llmClient // wired into Phase 2 handlers in Sprints 5-6
 
-	srv, err := web.New(links, sessions)
+	// Prompt generator (Sprint 5). Hands the bot+KB to Claude to draft
+	// a German system prompt.
+	promptGen, err := prompt.New(db, llmClient, llmClient)
+	if err != nil {
+		log.Fatalf("prompt init: %v", err)
+	}
+
+	srv, err := web.New(db, links, sessions, promptGen)
 	if err != nil {
 		log.Fatalf("web init: %v", err)
 	}

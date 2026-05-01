@@ -1,0 +1,23 @@
+{{define "layout"}}<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280">
+  <title>{{.Title}} — Everychat</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body class="editor">
+  <header class="topbar topbar--editor">
+    <nav class="crumbs" aria-label="breadcrumb">
+      <a class="brand" href="/admin">Everychat</a>
+      <span class="crumbs__sep">/</span>
+      <span class="crumbs__link"><a href="/admin">Bots</a></span>
+      <span class="crumbs__sep">/</span>
+      <span class="crumbs__current">{{.Bot.Name}}</span>
+    </nav>
+    <span class="user">{{.Email}}</span>
+  </header>
+  {{template "page" .}}
+</body>
+</html>{{end}}

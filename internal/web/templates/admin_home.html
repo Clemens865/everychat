@@ -1,11 +1,31 @@
 {{define "content"}}
-<section class="card">
-  <h1>Welcome, {{.Email}}</h1>
-  <p>You're signed in. Phase 1 ships an empty admin shell — bot authoring lands in Phase 2.</p>
-  <button class="primary" hx-get="/admin/new-bot" hx-target="#panel" hx-swap="innerHTML" disabled title="Phase 2">
-    Create your first bot
-  </button>
-  <div id="panel"></div>
+<section class="bots">
+  <header class="bots__header">
+    <h1>Bots</h1>
+    <button class="ghost-btn" disabled title="Wizard kommt in Sprint 6">+ Neuer Bot</button>
+  </header>
+
+  {{if .Bots}}
+    {{range .Bots}}
+      <a class="bot-card" href="/admin/bots/{{.ID}}">
+        <div class="bot-card__top">
+          <span class="bot-card__name">{{.Name}}</span>
+          {{if eq .Status "published"}}
+            <span class="pill pill--published">Live</span>
+          {{else}}
+            <span class="pill pill--draft">Entwurf</span>
+          {{end}}
+        </div>
+        <div class="bot-card__meta">
+          <span><strong>Schwelle:</strong> {{printf "%.2f" .EvalThreshold}}</span>
+          <span><strong>Aufbewahrung:</strong> {{.RetentionDays}} Tage</span>
+        </div>
+      </a>
+    {{end}}
+  {{else}}
+    <p class="muted">Noch keine Bots. Der Wizard zum Anlegen folgt in Sprint 6.</p>
+  {{end}}
+
   <form method="POST" action="/logout" class="logout">
     <button type="submit" class="link">Sign out</button>
   </form>
