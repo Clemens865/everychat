@@ -1,0 +1,36 @@
+services:
+  everychat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${EVERYCHAT_VERSION:-docker-dev}
+    container_name: everychat
+    environment:
+      EVERYCHAT_ADDR: ":8080"
+      EVERYCHAT_DB_PATH: "/app/data/everychat.db"
+      EVERYCHAT_BASE_URL: "${EVERYCHAT_BASE_URL:-https://everychat.local}"
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: everychat-caddy
+    depends_on:
+      - everychat
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.compose:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
