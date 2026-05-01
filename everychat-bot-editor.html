@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1440">
+  <title>steuerkanzlei-demo · Bot Editor — Everychat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Phase 1 admin palette — locked */
+      --bg: #0f1115;
+      --surface: #161a22;
+      --text: #e8ecf1;
+      --muted: #98a2b3;
+      --accent: #6c8cff;
+      --error: #ff7373;
+      --border: #232936;
+
+      /* Phase 2 admin extensions */
+      --bg-deep: #0a0c12;
+      --border-soft: #1d2230;
+      --success: #4caf6e;
+      --warning: #caa45a;
+      --warning-tint: rgba(202, 164, 90, 0.10);
+      --warning-edge: rgba(202, 164, 90, 0.28);
+
+      /* Widget palette — visibly separate from admin language.
+         The chat is the artifact a customer will embed on their site;
+         it has its own brand: lighter, friendlier, consumer-grade. */
+      --w-bg: #f7f8fb;
+      --w-surface: #ffffff;
+      --w-text: #1a1d24;
+      --w-muted: #6b7385;
+      --w-border: #e6e8ee;
+      --w-accent: #2f4cff;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "JetBrains Mono", "Menlo", monospace;
+
+      --topbar-h: 48px;
+      --banner-h: 52px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font-family: inherit; cursor: pointer; }
+    ::selection { background: var(--accent); color: #fff; }
+
+    /* ─── Topbar ─────────────────────────────────────────────── */
+    .topbar {
+      height: var(--topbar-h);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand {
+      font-weight: 600; letter-spacing: 0.02em; font-size: 14px;
+      display: inline-flex; align-items: center; gap: 14px;
+    }
+    .brand__sep { color: var(--border); font-weight: 400; }
+    .brand__crumb a { color: var(--muted); font-weight: 500; }
+    .brand__crumb a:hover { color: var(--text); text-decoration: none; }
+    .brand__current { color: var(--text); font-family: var(--font-mono); font-size: 13px; }
+    .user { color: var(--muted); font-size: 13px; }
+
+    /* ─── Publish-gate banner — single line, no shortcut, no stripes ─── */
+    .gate {
+      height: var(--banner-h);
+      display: flex; align-items: center; gap: 14px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--warning-edge);
+      background: var(--warning-tint);
+    }
+    .gate__icon {
+      width: 20px; height: 20px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--warning); color: #1a1404;
+      border-radius: 50%;
+      font-weight: 700; font-size: 12px;
+      flex: 0 0 20px;
+    }
+    .gate__text { flex: 1; font-size: 13.5px; color: var(--text); }
+    .gate__text .muted { color: var(--muted); }
+    .gate__cta {
+      background: var(--warning); color: #1a1404; border: 0;
+      padding: 6px 14px; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+    }
+    .gate__cta:hover { background: #d8b675; }
+
+    /* ─── Three-column workbench ─────────────────────────────── */
+    .workbench {
+      display: grid;
+      grid-template-columns: 264px minmax(0, 1fr) minmax(0, 1fr);
+      height: calc(100vh - var(--topbar-h) - var(--banner-h));
+    }
+    .col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .col + .col { border-left: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span>Everychat</span>
+      <span class="brand__sep">/</span>
+      <span class="brand__crumb"><a href="#">Bots</a></span>
+      <span class="brand__sep">/</span>
+      <span class="brand__current">steuerkanzlei-demo</span>
+    </div>
+    <span class="user">clemens@everychat.local</span>
+  </header>
+
+  <div class="gate" role="status">
+    <span class="gate__icon" aria-hidden="true">!</span>
+    <div class="gate__text">
+      Entwurf — noch keine Evaluation. <span class="muted">2 Compliance-Felder offen.</span>
+    </div>
+    <button class="gate__cta">Evals ausführen</button>
+  </div>
+
+  <main class="workbench">
+
+    <!-- ─── Column 1 — Settings rail ─────────────────────────── -->
+    <style>
+      .rail {
+        background: var(--bg);
+        overflow-y: auto;
+        padding: 8px 0 32px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .rail::-webkit-scrollbar { width: 6px; }
+      .rail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+      .rail__group { padding: 16px 24px; }
+      .rail__group + .rail__group { border-top: 1px solid var(--border-soft); }
+
+      .rail__head {
+        display: flex; align-items: center; justify-content: space-between;
+        font-size: 11px; font-weight: 600;
+        letter-spacing: 0.1em; text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 14px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .rail__head:hover { color: var(--text); }
+      .rail__warn {
+        font-size: 10px; font-weight: 600;
+        color: var(--warning);
+        letter-spacing: 0.04em; text-transform: none;
+        display: inline-flex; align-items: center; gap: 5px;
+      }
+      .rail__warn::before {
+        content: ""; width: 5px; height: 5px; border-radius: 50%;
+        background: var(--warning);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50%      { opacity: 0.4; }
+      }
+
+      .rail__body { display: none; }
+      .rail__group--open .rail__body { display: block; }
+
+      .rail__row + .rail__row { margin-top: 12px; }
+      .rail__label {
+        font-size: 11.5px; color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .rail__value {
+        font-size: 13px; color: var(--text);
+      }
+      .rail__value.mono { font-family: var(--font-mono); font-size: 12px; }
+
+      .rail__input {
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        padding: 6px 9px;
+        border-radius: 5px;
+        width: 100%;
+      }
+      .rail__input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+      .rail__input::placeholder { color: var(--muted); opacity: 0.6; }
+      .rail__input--missing {
+        border-color: var(--warning-edge);
+        background: linear-gradient(0deg, var(--warning-tint), var(--warning-tint)), var(--bg-deep);
+      }
+
+      .rail__btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 12px; font-weight: 500;
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 5px 10px;
+        border-radius: 5px;
+        margin-top: 10px;
+      }
+      .rail__btn:hover { background: var(--surface); border-color: var(--muted); }
+      .rail__btn--danger { color: var(--error); border-color: rgba(255,115,115,0.25); }
+      .rail__btn--danger:hover { background: rgba(255,115,115,0.06); border-color: var(--error); }
+
+      .pill {
+        display: inline-flex; align-items: center;
+        font-size: 10.5px; font-weight: 600;
+        letter-spacing: 0.05em; text-transform: uppercase;
+        padding: 2px 8px;
+        border-radius: 3px;
+        gap: 5px;
+      }
+      .pill--draft { color: var(--warning); background: var(--warning-tint); }
+      .pill::before {
+        content: ""; width: 5px; height: 5px; border-radius: 50%;
+        background: currentColor;
+      }
+
+      /* Toggle row (checkbox + label, native rebuild) */
+      .rail__toggle {
+        display: inline-flex; align-items: center; gap: 9px;
+        font-size: 13px; color: var(--text);
+        cursor: pointer;
+      }
+      .rail__toggle input { appearance: none; -webkit-appearance: none; margin: 0; }
+      .rail__toggle input + .rail__toggle-text::before {
+        content: "";
+        display: inline-block;
+        width: 14px; height: 14px;
+        margin-right: 8px;
+        border-radius: 3px;
+        border: 1px solid var(--border);
+        background: var(--bg-deep);
+        vertical-align: -2px;
+      }
+      .rail__toggle input:checked + .rail__toggle-text::before {
+        background: var(--accent);
+        border-color: var(--accent);
+        box-shadow: inset 0 0 0 2px var(--bg);
+      }
+      .rail__toggle-text { display: inline-flex; align-items: center; }
+      .rail__sub { font-size: 11px; color: var(--muted); margin-top: 4px; padding-left: 22px; }
+
+      /* Chips for suggested-question editor */
+      .rail__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .rail__chip {
+        display: inline-flex; align-items: center;
+        font-size: 12px; color: var(--text);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        padding: 4px 9px;
+        border-radius: 14px;
+      }
+      .rail__chip--add {
+        background: transparent; color: var(--muted);
+        cursor: pointer;
+        padding: 4px 10px;
+        font-weight: 500;
+      }
+      .rail__chip--add:hover { color: var(--text); border-color: var(--muted); }
+    </style>
+
+    <aside class="col rail" aria-label="Bot-Einstellungen">
+
+      <section class="rail__group rail__group--open">
+        <header class="rail__head">Identität</header>
+        <div class="rail__body">
+          <div class="rail__row">
+            <div class="rail__label">Bot</div>
+            <div class="rail__value mono">steuerkanzlei-demo</div>
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Anzeigename (im Widget)</div>
+            <div class="rail__value">Steuerkanzlei Mustermann</div>
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Domain</div>
+            <div class="rail__value mono">steuerkanzlei-mustermann.de</div>
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Status</div>
+            <div class="rail__value"><span class="pill pill--draft">Entwurf</span></div>
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Akzentfarbe</div>
+            <div class="rail__value" style="display:inline-flex;align-items:center;gap:8px">
+              <span style="width:18px;height:18px;border-radius:4px;background:#2f4cff;border:1px solid var(--border)"></span>
+              <span class="mono">#2F4CFF</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail__group rail__group--open">
+        <header class="rail__head">
+          <span>Compliance</span>
+          <span class="rail__warn">2 fehlen</span>
+        </header>
+        <div class="rail__body">
+          <div class="rail__row">
+            <div class="rail__label">Datenschutz-URL</div>
+            <input class="rail__input rail__input--missing" placeholder="https://…/datenschutz">
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">AGB-URL</div>
+            <input class="rail__input rail__input--missing" placeholder="https://…/agb">
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Aufbewahrung</div>
+            <div class="rail__value mono">90 Tage</div>
+          </div>
+          <div class="rail__row">
+            <label class="rail__toggle">
+              <input type="checkbox" checked>
+              <span class="rail__toggle-text">Datenschutz-Hinweis im Widget anzeigen</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail__group rail__group--open">
+        <header class="rail__head">Verhalten</header>
+        <div class="rail__body">
+          <div class="rail__row">
+            <div class="rail__label">Begrüßung</div>
+            <textarea class="rail__input" rows="2">Guten Tag! Ich helfe Ihnen bei Fragen zur Kanzlei. Wie kann ich unterstützen?</textarea>
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Vorgeschlagene Fragen <span style="color:var(--muted);font-weight:400">· 3 von max 4</span></div>
+            <div class="rail__chips">
+              <span class="rail__chip">Welche Leistungen?</span>
+              <span class="rail__chip">Honorar nach StBVV</span>
+              <span class="rail__chip">Erstgespräch buchen</span>
+              <button class="rail__chip rail__chip--add">+</button>
+            </div>
+          </div>
+          <div class="rail__row">
+            <label class="rail__toggle">
+              <input type="checkbox" checked>
+              <span class="rail__toggle-text">Datei-Upload (PDF, max 10 MB)</span>
+            </label>
+          </div>
+          <div class="rail__row">
+            <label class="rail__toggle">
+              <input type="checkbox" checked>
+              <span class="rail__toggle-text">Lead-Erfassung (E-Mail bei Interesse)</span>
+            </label>
+            <div class="rail__sub mono">→ ausgelöst nach 3 Nachrichten oder bei Termin-Intent</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail__group rail__group--open">
+        <header class="rail__head">Wissensbasis</header>
+        <div class="rail__body">
+          <div class="rail__row">
+            <div class="rail__label">Inhalte</div>
+            <div class="rail__value mono">47 Chunks · 12 Seiten</div>
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Letzter Crawl</div>
+            <div class="rail__value">vor 3 Stunden</div>
+          </div>
+          <button class="rail__btn">Erneut crawlen</button>
+        </div>
+      </section>
+
+      <section class="rail__group">
+        <header class="rail__head">Evaluation</header>
+        <div class="rail__body">
+          <div class="rail__row">
+            <div class="rail__label">Schwelle</div>
+            <input class="rail__input" type="number" min="0" max="1" step="0.01" value="0.85" style="max-width:90px">
+          </div>
+          <div class="rail__row">
+            <div class="rail__label">Letzter Lauf</div>
+            <div class="rail__value" style="color:var(--muted)">noch nie</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail__group">
+        <header class="rail__head" style="color:var(--error)">Gefahrenzone</header>
+        <div class="rail__body">
+          <button class="rail__btn rail__btn--danger">Bot löschen</button>
+        </div>
+      </section>
+
+    </aside>
+
+
+    <!-- ─── Column 2 — Prompt workbench ─────────────────────── -->
+    <style>
+      .pane { background: var(--bg); display: flex; flex-direction: column; min-height: 0; }
+      .pane__head {
+        display: flex; align-items: center;
+        height: 40px; flex: 0 0 40px;
+        padding: 0 24px;
+        border-bottom: 1px solid var(--border);
+      }
+      .tabs { display: flex; align-items: stretch; height: 100%; gap: 4px; }
+      .tab {
+        position: relative;
+        background: transparent; border: 0;
+        color: var(--muted);
+        font-size: 13px; font-weight: 500;
+        padding: 0 4px;
+        margin-right: 16px;
+        display: inline-flex; align-items: center;
+      }
+      .tab:hover { color: var(--text); }
+      .tab--active { color: var(--text); }
+      .tab--active::after {
+        content: "";
+        position: absolute;
+        left: 0; right: 0; bottom: -1px;
+        height: 2px; background: var(--accent);
+      }
+
+      .editor {
+        flex: 1; min-height: 0;
+        background: var(--bg-deep);
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.7;
+        padding: 24px 28px;
+        border: 0;
+        outline: none;
+        resize: none;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .editor::-webkit-scrollbar { width: 6px; }
+      .editor::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+      .pane__foot {
+        display: flex; align-items: center; justify-content: space-between;
+        height: 36px; flex: 0 0 36px;
+        padding: 0 24px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .save-state {
+        display: inline-flex; align-items: center; gap: 7px;
+      }
+      .save-state__dot {
+        width: 5px; height: 5px; border-radius: 50%;
+        background: var(--success);
+      }
+      .ghost-btn {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        font-size: 12px; font-weight: 500;
+        padding: 4px 10px;
+        border-radius: 5px;
+      }
+      .ghost-btn:hover { background: var(--surface); border-color: var(--muted); }
+    </style>
+
+    <section class="col pane" aria-label="System-Prompt">
+      <header class="pane__head">
+        <div class="tabs" role="tablist">
+          <button class="tab tab--active" role="tab">Entwurf</button>
+          <button class="tab" role="tab">Veröffentlicht</button>
+          <button class="tab" role="tab">Diff</button>
+        </div>
+      </header>
+
+      <textarea class="editor" spellcheck="false">Du bist der digitale Assistent der Steuerkanzlei Mustermann in München.
+
+Antworte präzise, freundlich und auf Deutsch (Sie-Form). Halte dich kurz: zwei bis vier Sätze, es sei denn die Frage verlangt eine Aufzählung.
+
+Beantworte ausschließlich Fragen zu:
+— Steuerberatung für KMU und Selbstständige
+— Lohn- und Gehaltsbuchhaltung (DATEV)
+— Jahresabschlüsse, Bilanzen, EÜR
+— Umsatzsteuervoranmeldung, ELSTER
+— Existenzgründung, Betriebsprüfung
+— Honorar nach StBVV
+
+Lehne ab:
+— Rechtsberatung jeder Art → "Bitte wenden Sie sich an einen Anwalt."
+— Anlage- oder Investmentempfehlungen
+— Medizinische Themen, Politik, Privates
+
+Bei Unsicherheit: ehrlich sagen und auf einen Termin mit Herrn Mustermann verweisen — Telefon (089) 123 456-0.
+
+Du bist zur Verschwiegenheit nach § 57 StBerG verpflichtet.</textarea>
+
+      <footer class="pane__foot">
+        <div class="save-state">
+          <span class="save-state__dot"></span>
+          <span>Gespeichert · vor 6 Sek</span>
+        </div>
+        <button class="ghost-btn">Neu generieren</button>
+      </footer>
+    </section>
+
+
+
+    <!-- ─── Column 3 — Live preview canvas (customer site + embedded widget) ─── -->
+    <style>
+      /* Customer-site palette — independent from both admin and widget. */
+      :root {
+        --c-bg: #f4f3ee;          /* warm off-white, DACH biz feel */
+        --c-surface: #ffffff;
+        --c-text: #1d1f23;
+        --c-muted: #6b6e76;
+        --c-accent: #1f3a3d;       /* deep teal — believable Steuerkanzlei brand */
+        --c-rule: #e0ddd2;
+      }
+
+      .stage { background: var(--bg); display: flex; flex-direction: column; min-height: 0; }
+
+      .stage__head {
+        display: flex; align-items: center; justify-content: space-between;
+        height: 40px; flex: 0 0 40px;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--border);
+        font-size: 11.5px; color: var(--muted);
+        letter-spacing: 0.06em; text-transform: uppercase;
+      }
+      .stage__head-left { display: inline-flex; align-items: center; gap: 10px; }
+      .stage__head-left::before {
+        content: ""; width: 6px; height: 6px; border-radius: 50%;
+        background: var(--warning);
+      }
+      .stage__head-meta {
+        font-family: var(--font-mono);
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+      .stage__head-right { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+
+      .kebab {
+        background: transparent; border: 0;
+        color: var(--muted);
+        width: 24px; height: 24px;
+        border-radius: 4px;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .kebab:hover { color: var(--text); background: var(--surface); }
+      .kebab svg { width: 14px; height: 14px; }
+
+      .kebab-menu {
+        position: absolute;
+        top: 30px; right: 0;
+        min-width: 240px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        z-index: 30;
+        padding: 4px;
+        display: none;
+        text-transform: none;
+        letter-spacing: normal;
+      }
+      .kebab-menu--open { display: block; }
+      .kebab-item {
+        padding: 8px 10px;
+        border-radius: 5px;
+        font-size: 13px;
+        color: var(--text);
+        cursor: pointer;
+        line-height: 1.4;
+      }
+      .kebab-item:hover { background: var(--bg); }
+      .kebab-item--featured { background: rgba(108,140,255,0.08); font-weight: 500; }
+      .kebab-item--featured:hover { background: rgba(108,140,255,0.14); }
+      .kebab-divider { height: 1px; background: var(--border); margin: 4px 6px; }
+
+      /* Stage interior — the dark "outside" the customer page floats in. */
+      .stage__viewport {
+        flex: 1; min-height: 0;
+        position: relative;
+        background:
+          radial-gradient(circle at 50% 0%, rgba(108,140,255,0.04), transparent 60%),
+          var(--bg);
+        padding: 20px;
+        overflow: hidden;
+      }
+
+      /* The "browser frame" wrapping the customer site mockup. Helps the
+         viewer understand: the widget is overlaid on a real website. */
+      .browser {
+        position: relative;
+        width: 100%; height: 100%;
+        background: var(--c-bg);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow:
+          0 1px 0 rgba(255,255,255,0.04) inset,
+          0 14px 40px rgba(0,0,0,0.5);
+        display: flex; flex-direction: column;
+      }
+      .browser__chrome {
+        flex: 0 0 28px;
+        display: flex; align-items: center; gap: 6px;
+        padding: 0 14px;
+        background: #ebe8df;
+        border-bottom: 1px solid var(--c-rule);
+      }
+      .browser__chrome .dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: rgba(0,0,0,0.12);
+      }
+      .browser__url {
+        flex: 1;
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 11px; color: var(--c-muted);
+        background: rgba(255,255,255,0.6);
+        margin: 0 60px;
+        padding: 3px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--c-rule);
+      }
+
+      /* Customer site itself */
+      .csite {
+        flex: 1; min-height: 0;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--c-rule) transparent;
+        font-family: -apple-system, "Helvetica Neue", system-ui, sans-serif;
+        color: var(--c-text);
+      }
+      .csite::-webkit-scrollbar { width: 6px; }
+      .csite::-webkit-scrollbar-thumb { background: var(--c-rule); border-radius: 3px; }
+
+      .csite__nav {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 18px 32px;
+        border-bottom: 1px solid var(--c-rule);
+      }
+      .csite__logo {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 18px; font-weight: 600;
+        color: var(--c-accent);
+        letter-spacing: 0.01em;
+      }
+      .csite__logo small { font-size: 11px; font-weight: 400; color: var(--c-muted); display: block; letter-spacing: 0.18em; text-transform: uppercase; margin-top: -2px; }
+      .csite__nav-links {
+        display: inline-flex; gap: 20px;
+        font-size: 13px; color: var(--c-text);
+      }
+      .csite__nav-links a { color: var(--c-text); text-decoration: none; }
+      .csite__nav-links a:hover { color: var(--c-accent); }
+      .csite__nav-links a.active { color: var(--c-accent); font-weight: 500; }
+
+      .csite__hero {
+        padding: 48px 32px 40px;
+        max-width: 100%;
+      }
+      .csite__eyebrow {
+        font-size: 11px; font-weight: 500;
+        color: var(--c-accent);
+        letter-spacing: 0.14em; text-transform: uppercase;
+        margin-bottom: 14px;
+      }
+      .csite__headline {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 30px; line-height: 1.2; font-weight: 600;
+        color: var(--c-text);
+        margin: 0 0 16px;
+        max-width: 18ch;
+        letter-spacing: -0.01em;
+      }
+      .csite__lede {
+        font-size: 14px; line-height: 1.6;
+        color: var(--c-muted);
+        max-width: 42ch;
+        margin: 0 0 24px;
+      }
+      .csite__cta {
+        display: inline-block;
+        background: var(--c-accent); color: #fff;
+        font-size: 13px; font-weight: 500;
+        padding: 9px 16px;
+        border-radius: 2px;
+        text-decoration: none;
+      }
+
+      .csite__services {
+        padding: 16px 32px 80px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .csite__svc {
+        background: var(--c-surface);
+        border: 1px solid var(--c-rule);
+        padding: 16px;
+        border-radius: 4px;
+      }
+      .csite__svc h3 {
+        margin: 0 0 6px; font-size: 13px; font-weight: 600;
+        color: var(--c-accent);
+      }
+      .csite__svc p {
+        margin: 0; font-size: 12px; line-height: 1.5;
+        color: var(--c-muted);
+      }
+
+      /* ─── Embedded widget — overlaid on the customer site ─── */
+      .widget {
+        position: absolute;
+        right: 36px; bottom: 36px;
+        width: 380px;
+        max-height: calc(100% - 72px);
+        display: flex; flex-direction: column;
+        background: var(--w-surface);
+        color: var(--w-text);
+        border-radius: 14px;
+        box-shadow:
+          0 1px 0 rgba(255,255,255,0.6) inset,
+          0 18px 48px rgba(0,0,0,0.28),
+          0 4px 12px rgba(0,0,0,0.12);
+        overflow: hidden;
+        font-family: var(--font-sans);
+        z-index: 5;
+      }
+
+      .w-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 14px;
+        background: var(--w-accent);
+        color: #fff;
+      }
+      .w-avatar {
+        width: 32px; height: 32px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.18);
+        color: #fff;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 600;
+      }
+      .w-id { flex: 1; min-width: 0; line-height: 1.2; }
+      .w-name { font-size: 13.5px; font-weight: 600; }
+      .w-status {
+        font-size: 11px; opacity: 0.85;
+        display: inline-flex; align-items: center; gap: 5px;
+        margin-top: 1px;
+      }
+      .w-status::before {
+        content: ""; width: 6px; height: 6px; border-radius: 50%;
+        background: #6dd49a;
+      }
+      .w-ctl {
+        background: transparent; border: 0;
+        color: rgba(255,255,255,0.85);
+        width: 24px; height: 24px;
+        border-radius: 50%;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .w-ctl:hover { background: rgba(255,255,255,0.12); color: #fff; }
+      .w-ctl svg { width: 12px; height: 12px; }
+
+      /* Conversation thread */
+      .w-body {
+        flex: 1; min-height: 0;
+        overflow-y: auto;
+        padding: 14px 14px 8px;
+        background: var(--w-bg);
+        display: flex; flex-direction: column; gap: 8px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--w-border) transparent;
+      }
+      .w-body::-webkit-scrollbar { width: 5px; }
+      .w-body::-webkit-scrollbar-thumb { background: var(--w-border); border-radius: 3px; }
+
+      .w-msg { max-width: 88%; display: flex; flex-direction: column; gap: 4px; }
+      .w-msg--user { align-self: flex-end; align-items: flex-end; }
+      .w-msg--bot  { align-self: flex-start; align-items: flex-start; }
+
+      .w-bubble {
+        padding: 9px 13px;
+        font-size: 13.5px; line-height: 1.5;
+        border-radius: 14px;
+      }
+      .w-msg--user .w-bubble {
+        background: var(--w-accent); color: #fff;
+        border-bottom-right-radius: 4px;
+      }
+      .w-msg--bot .w-bubble {
+        background: var(--w-surface); color: var(--w-text);
+        border: 1px solid var(--w-border);
+        border-bottom-left-radius: 4px;
+      }
+      .w-bubble p { margin: 0 0 6px; }
+      .w-bubble p:last-child { margin: 0; }
+
+      .cursor {
+        display: inline-block; width: 5px; height: 13px;
+        background: var(--w-text); vertical-align: -2px;
+        margin-left: 2px;
+        animation: blink 1.05s steps(2, start) infinite;
+      }
+      @keyframes blink { to { visibility: hidden; } }
+
+      .w-sources {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11.5px; color: var(--w-muted);
+        background: transparent; border: 0; padding: 0;
+        cursor: pointer;
+      }
+      .w-sources:hover { color: var(--w-accent); }
+      .w-sources svg { width: 10px; height: 10px; }
+
+      /* Lead-capture artifact card — shown inline when bot detects intent */
+      .w-artifact {
+        align-self: stretch;
+        background: var(--w-surface);
+        border: 1px solid var(--w-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin: 4px 0;
+      }
+      .w-artifact__head {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 600;
+        color: var(--w-accent);
+        letter-spacing: 0.06em; text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .w-artifact__head::before {
+        content: ""; width: 5px; height: 5px; border-radius: 50%;
+        background: var(--w-accent);
+      }
+      .w-artifact__title {
+        font-size: 13.5px; font-weight: 600;
+        color: var(--w-text);
+        margin: 0 0 4px;
+      }
+      .w-artifact__desc {
+        font-size: 12.5px; color: var(--w-muted);
+        margin: 0 0 10px; line-height: 1.5;
+      }
+      .w-form { display: flex; flex-direction: column; gap: 6px; }
+      .w-form input {
+        font-family: inherit; font-size: 13px;
+        padding: 7px 10px;
+        background: var(--w-bg);
+        border: 1px solid var(--w-border);
+        border-radius: 7px;
+        color: var(--w-text);
+      }
+      .w-form input:focus {
+        outline: none; border-color: var(--w-accent);
+        box-shadow: 0 0 0 3px rgba(47,76,255,0.12);
+      }
+      .w-form button {
+        font-family: inherit; font-size: 13px; font-weight: 500;
+        background: var(--w-accent); color: #fff;
+        border: 0; padding: 8px 12px;
+        border-radius: 7px;
+        margin-top: 2px;
+      }
+      .w-form button:hover { background: #1a3aff; }
+      .w-artifact__hint {
+        font-size: 10.5px; color: var(--w-muted);
+        margin-top: 6px;
+      }
+
+      /* Footer / composer */
+      .w-foot {
+        background: var(--w-surface);
+        border-top: 1px solid var(--w-border);
+        padding: 8px 10px 10px;
+      }
+      .w-input-shell {
+        display: flex; align-items: flex-end; gap: 6px;
+        background: var(--w-bg);
+        border: 1px solid var(--w-border);
+        border-radius: 20px;
+        padding: 4px 4px 4px 12px;
+      }
+      .w-input-shell:focus-within {
+        border-color: var(--w-accent);
+        box-shadow: 0 0 0 3px rgba(47,76,255,0.10);
+      }
+      .w-input {
+        flex: 1;
+        background: transparent; border: 0; outline: none;
+        font-family: var(--font-sans);
+        font-size: 13.5px; line-height: 1.4;
+        color: var(--w-text);
+        resize: none;
+        padding: 7px 0;
+        min-height: 22px;
+        max-height: 80px;
+      }
+      .w-input::placeholder { color: var(--w-muted); }
+      .w-attach, .w-send {
+        width: 30px; height: 30px;
+        border-radius: 50%;
+        display: inline-flex; align-items: center; justify-content: center;
+        flex: 0 0 30px; border: 0;
+      }
+      .w-attach { background: transparent; color: var(--w-muted); }
+      .w-attach:hover { color: var(--w-accent); background: var(--w-bg); }
+      .w-attach svg { width: 14px; height: 14px; }
+      .w-send { background: var(--w-accent); color: #fff; }
+      .w-send:hover { background: #1a3aff; }
+      .w-send svg { width: 12px; height: 12px; }
+
+      .w-consent {
+        font-size: 10.5px; color: var(--w-muted);
+        text-align: center;
+        margin-top: 7px;
+        line-height: 1.5;
+      }
+      .w-consent a { color: var(--w-accent); }
+
+      .w-poweredby {
+        font-size: 10px; color: var(--w-muted);
+        text-align: center;
+        padding: 6px 0 4px;
+        border-top: 1px solid var(--w-border);
+        background: var(--w-surface);
+        letter-spacing: 0.04em;
+      }
+      .w-poweredby b { color: var(--w-text); font-weight: 600; }
+    </style>
+
+    <section class="col stage" aria-label="Live-Vorschau">
+
+      <header class="stage__head">
+        <span class="stage__head-left">
+          Live-Vorschau · Entwurf
+          <span class="stage__head-meta">· steuerkanzlei-mustermann.de · 1440 × 900</span>
+        </span>
+        <span class="stage__head-right">
+          <button class="kebab" id="kebab-trigger" aria-haspopup="true">
+            <svg viewBox="0 0 14 14" fill="currentColor"><circle cx="7" cy="3" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="7" cy="11" r="1.2"/></svg>
+          </button>
+          <div class="kebab-menu" id="kebab-menu" role="menu">
+            <div class="kebab-item kebab-item--featured" role="menuitem">
+              Letzte Antwort als Goldfrage speichern
+            </div>
+            <div class="kebab-divider"></div>
+            <div class="kebab-item" role="menuitem">Verlauf zurücksetzen</div>
+            <div class="kebab-item" role="menuitem">Verlauf exportieren</div>
+            <div class="kebab-divider"></div>
+            <div class="kebab-item" role="menuitem">Vorschau auf 375 × 667 (Mobil)</div>
+          </div>
+        </span>
+      </header>
+
+      <div class="stage__viewport">
+        <div class="browser">
+
+          <div class="browser__chrome" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="browser__url">https://steuerkanzlei-mustermann.de/</span>
+          </div>
+
+          <div class="csite">
+            <nav class="csite__nav">
+              <div class="csite__logo">
+                Mustermann <small>Steuerberatung · München</small>
+              </div>
+              <div class="csite__nav-links">
+                <a href="#" class="active">Start</a>
+                <a href="#">Leistungen</a>
+                <a href="#">Über uns</a>
+                <a href="#">Kontakt</a>
+              </div>
+            </nav>
+
+            <section class="csite__hero">
+              <div class="csite__eyebrow">Seit 1998 in München</div>
+              <h1 class="csite__headline">Steuerberatung für den Mittelstand.</h1>
+              <p class="csite__lede">Wir betreuen über 80 mittelständische Mandate in Bayern und Baden-Württemberg — von der laufenden Buchhaltung über DATEV-Lohnabrechnung bis zum Jahresabschluss nach HGB.</p>
+              <a href="#" class="csite__cta">Erstgespräch vereinbaren</a>
+            </section>
+
+            <section class="csite__services">
+              <article class="csite__svc">
+                <h3>Steuerberatung</h3>
+                <p>Laufende Beratung für KMU und Selbstständige inklusive Umsatzsteuer-Voranmeldung über ELSTER.</p>
+              </article>
+              <article class="csite__svc">
+                <h3>Lohnbuchhaltung</h3>
+                <p>Monatliche Lohn- und Gehaltsabrechnung mit DATEV inklusive Bescheinigungswesen.</p>
+              </article>
+              <article class="csite__svc">
+                <h3>Jahresabschluss</h3>
+                <p>Bilanz, GuV und Anhang nach HGB — fristgerecht und prüfungssicher aufbereitet.</p>
+              </article>
+            </section>
+          </div>
+
+          <!-- ─── Embedded chat widget ─── -->
+          <aside class="widget" role="region" aria-label="Eingebetteter Chat">
+
+            <header class="w-head">
+              <span class="w-avatar">SM</span>
+              <div class="w-id">
+                <div class="w-name">Steuerkanzlei Mustermann</div>
+                <div class="w-status">Online</div>
+              </div>
+              <button class="w-ctl" aria-label="Vergrößern" title="Vergrößern">
+                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5V2h3M10 7v3H7M7 2h3v3M5 10H2V7"/></svg>
+              </button>
+              <button class="w-ctl" aria-label="Minimieren" title="Minimieren">
+                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6h6"/></svg>
+              </button>
+              <button class="w-ctl" aria-label="Schließen" title="Schließen">
+                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+              </button>
+            </header>
+
+            <div class="w-body" id="w-body" aria-live="polite">
+
+              <!-- Bot greeting (configured in Verhalten → Begrüßung) -->
+              <div class="w-msg w-msg--bot">
+                <div class="w-bubble">Guten Tag! Ich helfe Ihnen bei Fragen zur Kanzlei. Wie kann ich unterstützen?</div>
+              </div>
+
+              <div class="w-msg w-msg--user">
+                <div class="w-bubble">Übernehmt ihr monatliche Lohnabrechnungen für meine 12 Mitarbeiter?</div>
+              </div>
+
+              <div class="w-msg w-msg--bot">
+                <div class="w-bubble">
+                  <p>Ja, gerne. Wir übernehmen die laufende Lohn- und Gehaltsabrechnung mit DATEV — bei 12 Mitarbeitern arbeiten wir mit einem Pauschalpreis pro Person und Monat.</p>
+                  <p>Inklusive sind Brutto/Netto, Sozialversicherung, Lohnsteuer-Anmeldung über ELSTER und das Bescheinigungswesen.</p>
+                </div>
+                <button class="w-sources" data-sources-toggle>
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h8M2 6h8M2 8h5"/></svg>
+                  3 Quellen anzeigen
+                </button>
+              </div>
+
+              <div class="w-msg w-msg--user">
+                <div class="w-bubble">Können wir uns nächste Woche dazu kurz austauschen?</div>
+              </div>
+
+              <!-- Lead-capture artifact (Lead-Erfassung toggle on, intent = Termin) -->
+              <div class="w-msg w-msg--bot">
+                <div class="w-bubble">Sehr gern. Damit Herr Mustermann sich direkt bei Ihnen melden kann, hinterlassen Sie bitte kurz Ihre Kontaktdaten:</div>
+                <div class="w-artifact">
+                  <div class="w-artifact__head">Termin · Lead-Erfassung</div>
+                  <div class="w-artifact__title">Erstgespräch anfragen</div>
+                  <p class="w-artifact__desc">Wir melden uns innerhalb eines Werktags telefonisch oder per E-Mail.</p>
+                  <div class="w-form">
+                    <input type="text" placeholder="Ihr Name">
+                    <input type="email" placeholder="ihre.adresse@firma.de">
+                    <button>Anfrage senden</button>
+                  </div>
+                  <div class="w-artifact__hint">Ihre Daten werden ausschließlich für die Terminanbahnung verwendet.</div>
+                </div>
+              </div>
+
+              <!-- Streaming bot turn -->
+              <div class="w-msg w-msg--bot">
+                <div class="w-bubble">
+                  <p>Alternativ erreichen Sie unsere Kanzlei direkt unter (089) 123 456-0<span class="cursor" aria-hidden="true"></span></p>
+                </div>
+              </div>
+
+            </div>
+
+            <footer class="w-foot">
+              <div class="w-input-shell">
+                <button class="w-attach" aria-label="Datei anhängen" title="PDF anhängen (max 10 MB)">
+                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 4L5 8a2 2 0 0 0 3 3l4-4a3 3 0 0 0-4-4L4 7a4 4 0 0 0 6 6l3-3"/></svg>
+                </button>
+                <textarea class="w-input" rows="1" placeholder="Schreiben Sie Ihre Frage …"></textarea>
+                <button class="w-send" aria-label="Senden">
+                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 7h9M7 3l4 4-4 4"/></svg>
+                </button>
+              </div>
+              <p class="w-consent">
+                Mit dem Senden akzeptieren Sie unsere
+                <a href="#">Datenschutzhinweise</a> und <a href="#">AGB</a>.
+              </p>
+            </footer>
+
+            <div class="w-poweredby">Powered by <b>Everychat</b></div>
+          </aside>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // Settings rail accordion.
+    document.querySelectorAll('.rail__head').forEach(head => {
+      head.addEventListener('click', () => {
+        head.closest('.rail__group').classList.toggle('rail__group--open');
+      });
+    });
+
+    // Tab switching in the prompt workbench.
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab--active'));
+        tab.classList.add('tab--active');
+      });
+    });
+
+    // Quellen toggle (collapsed-by-default).
+    document.querySelectorAll('[data-sources-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.textContent = btn.textContent.includes('anzeigen')
+          ? '3 Quellen ausblenden'
+          : '3 Quellen anzeigen';
+      });
+    });
+
+    // Kebab menu.
+    const kebabBtn  = document.getElementById('kebab-trigger');
+    const kebabMenu = document.getElementById('kebab-menu');
+    kebabBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      kebabMenu.classList.toggle('kebab-menu--open');
+    });
+    document.addEventListener('click', () => {
+      kebabMenu.classList.remove('kebab-menu--open');
+    });
+
+    // Auto-scroll the widget thread to the latest (streaming) message.
+    const wb = document.getElementById('w-body');
+    if (wb) wb.scrollTop = wb.scrollHeight;
+  </script>
+
+</body>
+</html>
