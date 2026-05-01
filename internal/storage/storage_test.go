@@ -33,6 +33,17 @@ func TestOpenInMemoryRunsMigrations(t *testing.T) {
 
 func TestMigrateIsIdempotent(t *testing.T) {
 	db := openTestDB(t)
+	// Initial Open already ran every embedded migration once; record the
+	// post-bootstrap count and assert repeated Migrate() calls don't
+	// re-apply anything.
+	var initial int
+	if err := db.QueryRow(`SELECT count(*) FROM _schema_migrations`).Scan(&initial); err != nil {
+		t.Fatalf("count migrations (initial): %v", err)
+	}
+	if initial == 0 {
+		t.Fatal("expected at least one migration applied on Open()")
+	}
+
 	if err := Migrate(db); err != nil {
 		t.Fatalf("second Migrate() call: %v", err)
 	}
@@ -44,8 +55,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM _schema_migrations`).Scan(&n); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("expected 1 row in _schema_migrations after repeated Migrate(), got %d", n)
+	if n != initial {
+		t.Fatalf("expected %d rows in _schema_migrations after repeated Migrate(), got %d", initial, n)
 	}
 }
 

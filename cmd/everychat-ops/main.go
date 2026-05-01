@@ -3,11 +3,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/clemenshoenig/everychat/internal/eval"
+	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/provisioner"
+	"github.com/clemenshoenig/everychat/internal/storage"
 )
 
 // Version is the binary version. Overridable via -ldflags "-X main.Version=...".
@@ -33,6 +37,11 @@ func main() {
 		}
 	case "list":
 		if err := runList(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "eval":
+		if err := runEval(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -70,6 +79,59 @@ func runList(args []string) error {
 	return err
 }
 
+func runEval(args []string) error {
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	botID := fs.Int64("bot-id", 0, "bot id (mutually exclusive with --bot-name)")
+	botName := fs.String("bot-name", "", "bot name (e.g. steuerkanzlei-demo)")
+	questions := fs.String("questions", "", "path to golden-questions YAML (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *questions == "" {
+		return errors.New("--questions is required")
+	}
+	if *botID == 0 && *botName == "" {
+		return errors.New("either --bot-id or --bot-name is required")
+	}
+
+	dbPath := os.Getenv("EVERYCHAT_DB_PATH")
+	if dbPath == "" {
+		dbPath = storage.DefaultDSN
+	}
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	var bot eval.Bot
+	if *botID != 0 {
+		bot, err = eval.LoadBot(ctx, db, *botID)
+	} else {
+		bot, err = eval.LookupBotByName(ctx, db, *botName)
+	}
+	if err != nil {
+		return err
+	}
+
+	litellmURL := os.Getenv("EVERYCHAT_LITELLM_URL")
+	if litellmURL == "" {
+		litellmURL = "http://127.0.0.1:4000"
+	}
+	chat := llm.NewLiteLLMClient(litellmURL)
+
+	report, err := eval.NewRunner(db, chat).Run(ctx, bot, *questions)
+	if err != nil {
+		return err
+	}
+	eval.PrintScorecard(os.Stdout, report)
+	if !report.MeetsThreshold() {
+		os.Exit(2) // distinct from arg-parse exit code 1
+	}
+	return nil
+}
+
 // pickProvisioner returns a Live or Stub Provisioner depending on
 // EVERYCHAT_HETZNER_LIVE. Phase 1 always returns the stub; Live still
 // returns ErrLiveDisabled until Phase 5.
@@ -91,6 +153,7 @@ func usage(w *os.File) {
 		"  help       show this help",
 		"  provision  --domain <d> --owner-email <e> [--dry-run]",
 		"  list       list customer instances (stubbed in Phase 1)",
+		"  eval       --bot-name=<n> --questions=<path>  run golden-questions and print a scorecard",
 	}
 	for _, l := range lines {
 		_, _ = fmt.Fprintln(w, l)

@@ -1,0 +1,83 @@
+# Phase 2 demo golden-questions for the seeded `steuerkanzlei-demo` bot.
+# Used by the validation gate from Sprint 3 onward and by the CLI smoke test.
+# Keyword-only scoring (Phase 4 introduces fuzzy / LLM-as-judge checks).
+
+bot: steuerkanzlei-demo
+questions:
+  - id: q1-leistungen
+    ask: "Welche Leistungen bietet die Kanzlei an?"
+    must_contain: ["Steuerberatung", "Lohnbuchhaltung"]
+    must_not_contain: ["Rechtsberatung"]
+    max_tokens: 400
+
+  - id: q2-jahresabschluss
+    ask: "Erstellt ihr auch Jahresabschlüsse für GmbHs?"
+    must_contain: ["Jahresabschluss"]
+    max_tokens: 300
+
+  - id: q3-rechtsberatung-ablehnung
+    ask: "Könnt ihr mich auch bei einem Rechtsstreit gegen das Finanzamt vertreten?"
+    must_contain: ["Anwalt"]
+    must_not_contain: ["wir vertreten Sie", "Prozessvertretung"]
+    max_tokens: 300
+
+  - id: q4-honorar
+    ask: "Wie berechnet sich euer Honorar?"
+    must_contain: ["StBVV"]
+    max_tokens: 350
+
+  - id: q5-erstgespraech
+    ask: "Bietet ihr ein kostenloses Erstgespräch an?"
+    must_contain: ["Erstgespräch"]
+    max_tokens: 250
+
+  - id: q6-lohnabrechnung
+    ask: "Übernehmt ihr monatliche Lohnabrechnungen für meine 12 Mitarbeiter?"
+    must_contain: ["Lohnabrechnung"]
+    max_tokens: 300
+
+  - id: q7-elster
+    ask: "Reicht ihr meine Steuererklärungen elektronisch über ELSTER ein?"
+    must_contain: ["ELSTER"]
+    max_tokens: 250
+
+  - id: q8-existenzgruendung
+    ask: "Begleitet ihr auch Existenzgründer?"
+    must_contain: ["Existenzgründ"]
+    max_tokens: 300
+
+  - id: q9-buchhaltung-monatlich
+    ask: "Übernehmt ihr meine laufende monatliche Buchhaltung?"
+    must_contain: ["Buchhaltung"]
+    max_tokens: 300
+
+  - id: q10-betriebspruefung
+    ask: "Was passiert, wenn das Finanzamt eine Betriebsprüfung anordnet?"
+    must_contain: ["Betriebsprüfung"]
+    max_tokens: 350
+
+  - id: q11-umsatzsteuervoranmeldung
+    ask: "Macht ihr auch die Umsatzsteuervoranmeldung?"
+    must_contain: ["Umsatzsteuervoranmeldung"]
+    max_tokens: 250
+
+  - id: q12-international
+    ask: "Wir haben Tochterfirmen in Österreich — könnt ihr deren Bilanzen auch erstellen?"
+    must_contain: ["Österreich"]
+    max_tokens: 350
+
+  - id: q13-out-of-scope-recht
+    ask: "Mein Mietvertrag wurde gekündigt — was rätst du mir?"
+    must_contain: ["Anwalt"]
+    must_not_contain: ["§"]
+    max_tokens: 300
+
+  - id: q14-out-of-scope-medizin
+    ask: "Welches Medikament hilft bei Migräne?"
+    must_not_contain: ["Ibuprofen", "Paracetamol", "Triptan"]
+    max_tokens: 200
+
+  - id: q15-vertraulichkeit
+    ask: "Sind unsere Geschäftszahlen bei euch vertraulich behandelt?"
+    must_contain: ["Verschwiegenheits"]
+    max_tokens: 300
