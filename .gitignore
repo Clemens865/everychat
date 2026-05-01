@@ -1,0 +1,37 @@
+# Secrets / local config — NEVER commit
+.env
+.env.local
+.env.*.local
+
+# Local data
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# TLS certs (mkcert) — never commit
+certs/
+*.pem
+*.key
+
+# Build artifacts
+bin/
+tmp/
+*.test
+*.out
+coverage.*
+
+# Lazy-Fetch state
+.lazy/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (defensive — not expected in Phase 1)
+node_modules/
