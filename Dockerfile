@@ -7,6 +7,13 @@ ENV CGO_ENABLED=1 \
     GOOS=linux \
     GOFLAGS=-buildvcs=false
 
+# go-sqlite3 brings its own SQLite via cgo, but sqlite-vec-go-bindings/cgo
+# includes the system <sqlite3.h> header — install libsqlite3-dev so the
+# vec extension cgo bridge compiles.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libsqlite3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 
 # Cache deps before copying source.
