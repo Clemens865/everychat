@@ -1,0 +1,43 @@
+# LiteLLM proxy config — Everychat Phase 2.
+#
+# Two model groups are exposed to the Go binary:
+#   - claude-sonnet : streaming chat completions (default model)
+#   - embed         : embeddings (1536-dim, OpenAI text-embedding-3-small)
+#
+# Adding a provider only requires editing this file — the Go gateway
+# (internal/llm/litellm_client.go) is provider-agnostic.
+
+model_list:
+  # ─── Chat ───────────────────────────────────────────────────────────────
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ─── Embeddings (Phase 2 default: OpenAI 1536-dim) ──────────────────────
+  - model_name: embed
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ─── Embeddings (Phase 4 EU-sovereignty alternative — uncomment when
+  #     a Voyage key is provisioned and migration 004 has reset the vec
+  #     table to FLOAT[1024]). Swap by changing this entry's model_name
+  #     to `embed` and commenting the OpenAI block above.
+  # - model_name: embed-voyage
+  #   litellm_params:
+  #     model: voyage/voyage-3
+  #     api_key: os.environ/VOYAGE_API_KEY
+
+litellm_settings:
+  drop_params: true        # ignore unknown params instead of erroring
+  set_verbose: false
+  # Telemetry off — Phase 2 keeps a single egress point.
+  telemetry: false
+
+general_settings:
+  # No master key required for the local sidecar — it's only reachable
+  # from inside the compose network.
+  pass_through_endpoints:
+    - path: "/health"
+      target: "http://0.0.0.0:4000/health"

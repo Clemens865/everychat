@@ -13,19 +13,22 @@ import (
 
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/email"
+	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/storage"
 	"github.com/clemenshoenig/everychat/internal/web"
 )
 
 const (
-	defaultAddr    = ":8080"
-	defaultBaseURL = "https://everychat.local"
+	defaultAddr       = ":8080"
+	defaultBaseURL    = "https://everychat.local"
+	defaultLiteLLMURL = "http://127.0.0.1:4000"
 )
 
 func main() {
 	addr := getenv("EVERYCHAT_ADDR", defaultAddr)
 	dbPath := getenv("EVERYCHAT_DB_PATH", storage.DefaultDSN)
 	baseURL := getenv("EVERYCHAT_BASE_URL", defaultBaseURL)
+	litellmURL := getenv("EVERYCHAT_LITELLM_URL", defaultLiteLLMURL)
 
 	db, err := storage.Open(dbPath)
 	if err != nil {
@@ -37,6 +40,12 @@ func main() {
 	sender := email.NewStdoutSender()
 	links := auth.NewMagicLinks(db, sender, baseURL)
 	sessions := auth.NewSessions(db)
+
+	// LLM gateway — used by Phase 2 sprints (eval, prompt drafting, sandbox).
+	// Phase 1 routes don't call it, but constructing it here surfaces config
+	// errors at boot rather than on first request.
+	llmClient := llm.NewLiteLLMClient(litellmURL)
+	_ = llmClient // wired into Phase 2 handlers in Sprints 5-6
 
 	srv, err := web.New(links, sessions)
 	if err != nil {
@@ -66,7 +75,7 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	log.Printf("everychat listening on %s (base url %s)", addr, baseURL)
+	log.Printf("everychat listening on %s (base url %s, litellm %s)", addr, baseURL, litellmURL)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}

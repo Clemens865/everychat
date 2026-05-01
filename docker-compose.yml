@@ -6,14 +6,30 @@ services:
       args:
         VERSION: ${EVERYCHAT_VERSION:-docker-dev}
     container_name: everychat
+    depends_on:
+      - litellm
     environment:
       EVERYCHAT_ADDR: ":8080"
       EVERYCHAT_DB_PATH: "/app/data/everychat.db"
       EVERYCHAT_BASE_URL: "${EVERYCHAT_BASE_URL:-https://everychat.local}"
+      EVERYCHAT_LITELLM_URL: "http://litellm:4000"
     volumes:
       - ./data:/app/data
     expose:
       - "8080"
+    restart: unless-stopped
+
+  litellm:
+    build:
+      context: ./internal/llm/litellm
+      dockerfile: Dockerfile
+    container_name: everychat-litellm
+    environment:
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY required — see .env.example}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY required — see .env.example}"
+      VOYAGE_API_KEY: "${VOYAGE_API_KEY:-}"
+    expose:
+      - "4000"
     restart: unless-stopped
 
   caddy:
