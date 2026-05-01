@@ -17,7 +17,7 @@ Read `docs/blueprints/everychat-managed-blueprint.md` for full architectural con
 - **LLM SDK:** `github.com/anthropics/anthropic-sdk-go` — talks to Claude (default model `claude-sonnet-4-6`)
 - **LLM gateway:** LiteLLM Python sidecar in `internal/llm/litellm/` — Dockerized, exposes a single OpenAI-compatible chat endpoint that the Go binary calls. Phase 2 routes Claude through it; future providers (OpenAI, Mistral, local) plug in here without touching Go.
 - **Vector storage:** `sqlite-vec` extension (Mike Lindenberger's WASM-ready vec0 virtual tables) loaded at runtime via `github.com/mattn/go-sqlite3`'s extension hook. Embeddings are stored in `kb_chunks.embedding` (the BLOB column reserved in Phase 1 migration `001_init`).
-- **Embeddings:** Anthropic's `voyage-3` (or `voyage-3-large`) via the LiteLLM sidecar — keeps a single egress point. If Voyage isn't available, fall back to OpenAI `text-embedding-3-small` via LiteLLM. Decision recorded in Sprint 1.
+- **Embeddings:** OpenAI `text-embedding-3-small` (1536-dim) via the LiteLLM sidecar — chosen for Phase 2 to avoid signing up for an additional vendor while we validate the product. Voyage-3 is configured as a swappable alternative in `litellm/config.yaml`; switching is a one-line config change once a Voyage key is provisioned (Phase 4 EU-sovereignty pass).
 - **Markdown / HTML parsing:** `github.com/JohannesKaufmann/html-to-markdown/v2` (HTML→Markdown), `github.com/yuin/goldmark` (Markdown→AST → chunks)
 - **Crawler:** `github.com/gocolly/colly/v2` for politeness, robots.txt, depth/host limits
 - **YAML:** `gopkg.in/yaml.v3` — golden-questions and eval reports
@@ -79,16 +79,16 @@ Ship a single-purpose LLM layer the rest of Phase 2 can call: streaming chat com
 - Add dependencies: `github.com/anthropics/anthropic-sdk-go`, `gopkg.in/yaml.v3`
 - `internal/llm/llm.go` — interface `Chat` with method `Stream(ctx, ChatRequest) (<-chan ChatChunk, error)` and interface `Embedder` with method `Embed(ctx, []string) ([][]float32, error)`. Concrete impl `LiteLLMClient` calls the sidecar's OpenAI-compatible `/v1/chat/completions` (with `stream: true`) and `/v1/embeddings` endpoints
 - `internal/llm/litellm/Dockerfile` — `python:3.12-slim` + `litellm[proxy]==1.74.x`
-- `internal/llm/litellm/config.yaml` — defines two model groups: `claude-sonnet` (Anthropic) and `embed` (Voyage with OpenAI fallback). API keys loaded from env (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, optional `OPENAI_API_KEY`)
+- `internal/llm/litellm/config.yaml` — defines two model groups: `claude-sonnet` (Anthropic) and `embed` (OpenAI `text-embedding-3-small` as default; Voyage-3 listed as commented-out alternative). API keys loaded from env (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, optional `VOYAGE_API_KEY`)
 - Extend `docker-compose.yml` with a `litellm` service on port 4000, internal-only (Caddy does not expose it)
 - Wire `EVERYCHAT_LITELLM_URL` env var into `cmd/everychat/main.go`; default `http://litellm:4000` in compose, `http://127.0.0.1:4000` for `make dev`
-- Update `.env.example` with `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `OPENAI_API_KEY` (commented), `EVERYCHAT_LITELLM_URL`
+- Update `.env.example` with `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `VOYAGE_API_KEY` (commented), `EVERYCHAT_LITELLM_URL`
 - Tests in `internal/llm/llm_test.go` — `httptest.NewServer` stub mocks LiteLLM responses; cover happy-path streaming, embedding shape, non-200 errors, context cancellation
 
 ### Acceptance
 - `make compose` boots three containers: `everychat`, `caddy`, `litellm`
 - A throwaway main or test calling `LiteLLMClient.Stream` against the running sidecar with a real `ANTHROPIC_API_KEY` returns a Claude completion in under 10s
-- `LiteLLMClient.Embed(["hello"])` returns one 1024-dim (Voyage) or 1536-dim (OpenAI) float32 vector
+- `LiteLLMClient.Embed(["hello"])` returns one 1536-dim float32 vector (OpenAI `text-embedding-3-small`)
 - All llm tests pass without network access (stubbed httptest)
 - README's "Quickstart (Docker Compose POC)" section adds a note: "set `ANTHROPIC_API_KEY` in `.env` before `make compose`"
 
@@ -153,7 +153,7 @@ Vector storage and retrieval, ready for the crawler (Sprint 4) to fill it.
 ### Tasks
 - Vendor the `sqlite-vec` extension binary for Linux/amd64, Linux/arm64, and Darwin/arm64 into `internal/storage/vec/` (build from upstream tarball; ship as `.so`/`.dylib`). Add a `make vec-extension` target documenting the build command for fresh checkouts.
 - Migration `internal/storage/migrations/003_vec.sql`:
-  - `CREATE VIRTUAL TABLE kb_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding FLOAT[1024])` (or 1536 — pick once based on Sprint 1's embedding choice and lock it in via a `EVERYCHAT_EMBED_DIMS` constant)
+  - `CREATE VIRTUAL TABLE kb_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding FLOAT[1536])` — locked to OpenAI `text-embedding-3-small` (Sprint 1 decision). Dimension exposed as `EVERYCHAT_EMBED_DIMS` constant in Go for future-proofing if Phase 4 swaps to Voyage (1024-dim) — that swap will require a fresh migration `004_*.sql` and a re-embed of all chunks.
   - Trigger to keep `kb_vec` in sync with `kb_chunks` deletes (insert path is explicit from Go)
 - `internal/storage/sqlite.go` — load `sqlite-vec` at `Open` time via `db.LoadExtension(...)`. Path resolved from `EVERYCHAT_VEC_EXT_PATH` env var with a sensible default per OS.
 - `internal/storage/kb.go` — typed helpers:
