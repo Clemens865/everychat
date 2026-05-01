@@ -1,0 +1,29 @@
+{
+	# Local development — admin disabled to avoid clashing with other Caddy
+	# instances. Production config lives elsewhere (Phase 5).
+	admin off
+}
+
+everychat.local {
+	tls ./certs/everychat.local+1.pem ./certs/everychat.local+1-key.pem
+
+	encode gzip
+
+	header {
+		# Security defaults — kept conservative for local dev.
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# HSTS only kicks in once you've confirmed HTTPS works end to end.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Don't leak Caddy's identity.
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8080 {
+		# Pass through original host for cookie scoping.
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
