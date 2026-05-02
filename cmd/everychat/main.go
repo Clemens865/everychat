@@ -21,6 +21,7 @@ import (
 	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
 	"github.com/clemenshoenig/everychat/internal/web"
+	"github.com/clemenshoenig/everychat/internal/widget"
 )
 
 const (
@@ -74,9 +75,15 @@ func main() {
 	devMode := getenv("EVERYCHAT_DEV_MODE", "0") == "1"
 	apiSrv := api.New(db, llmClient, devMode)
 
+	// Widget surface — embed.js loader + iframe shell + static assets.
+	widgetSrv, err := widget.New(db)
+	if err != nil {
+		log.Fatalf("widget init: %v", err)
+	}
+
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           srv.Routes(apiSrv),
+		Handler:           srv.Routes(apiSrv, widgetSrv),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

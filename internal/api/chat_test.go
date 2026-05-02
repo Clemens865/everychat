@@ -182,18 +182,4 @@ func TestWidgetConfig_BadTokenReturns404(t *testing.T) {
 	}
 }
 
-func TestEmbedJS_ServesPlaceholder(t *testing.T) {
-	srv, _, _ := newServerWithBot(t, true, "")
-	req := httptest.NewRequest(http.MethodGet, "/embed.js", nil)
-	rec := httptest.NewRecorder()
-	srv.embedJS(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: %d", rec.Code)
-	}
-	if !strings.Contains(rec.Header().Get("Content-Type"), "javascript") {
-		t.Errorf("content-type: %s", rec.Header().Get("Content-Type"))
-	}
-	if !strings.Contains(rec.Body.String(), "everychat embed.js") {
-		t.Errorf("body: %s", rec.Body.String())
-	}
-}
+// TestEmbedJS — moved to internal/widget where the loader now lives.

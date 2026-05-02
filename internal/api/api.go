@@ -36,11 +36,12 @@ func New(db *sql.DB, llmClient *llm.LiteLLMClient, devMode bool) *Server {
 	}
 }
 
-// Routes registers /api/v1/* and /embed.js under the given mux.
+// Routes registers /api/v1/* under the given mux. /embed.js + /widget/*
+// live in the internal/widget package so the visitor-rendering surface
+// is one cohesive owner.
 func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("/api/v1/chat", http.HandlerFunc(s.chat))
 	mux.Handle("/api/v1/widget/", http.HandlerFunc(s.widgetConfig))
-	mux.Handle("/embed.js", http.HandlerFunc(s.embedJS))
 }
 
 // originHeader returns the request's Origin (or Referer-derived fallback).

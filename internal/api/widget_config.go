@@ -89,24 +89,6 @@ func (s *Server) widgetConfig(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// embedJS serves the bundled loader. Sprint 1 ships a placeholder; the
-// real bundle drops in Sprint 2.
-func (s *Server) embedJS(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write([]byte(`/* everychat embed.js — placeholder. Sprint 2 ships the bundled runtime. */
-(function () {
-  var s = document.currentScript;
-  var bot = s && s.dataset && s.dataset.bot;
-  console.log("[everychat] embed loader stub; bot=" + (bot || "(missing)"));
-})();
-`))
-}
-
 // theme is the on-disk shape of bots.widget_theme_json. Kept private to
 // the api package for now; Sprint 3 lifts it into internal/widget.
 type theme struct {
