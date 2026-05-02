@@ -106,6 +106,7 @@ func (s *Server) Routes(extras ...RouteRegistrar) http.Handler {
 	mux.HandleFunc("/logout", s.logout)
 	mux.Handle("/admin", s.sessions.Require(http.HandlerFunc(s.admin)))
 	mux.Handle("/admin/bots/", s.sessions.Require(http.HandlerFunc(s.botRoutes)))
+	mux.Handle("/admin/visitors/", s.sessions.Require(http.HandlerFunc(s.visitorRoutes)))
 
 	for _, e := range extras {
 		e.Routes(mux)
@@ -305,6 +306,11 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 			s.suggestWidgetTheme(w, r, id)
 			return
 		}
+	case "dsgvo/doc-url":
+		if r.Method == http.MethodPost {
+			s.saveDSGVODocURL(w, r, id)
+			return
+		}
 	}
 	http.NotFound(w, r)
 }
@@ -344,11 +350,13 @@ func (s *Server) editor(w http.ResponseWriter, r *http.Request, id int64) {
 	draftJSON, _ := json.Marshal(bot.DraftPrompt)
 	publishedJSON, _ := json.Marshal(bot.SystemPrompt)
 
+	dsgvoURL, _ := storage.LoadDSGVODocURL(r.Context(), s.db, id)
 	s.render(w, "editor.html", map[string]any{
 		"Title":               bot.Name,
 		"Email":               auth.SessionEmail(r.Context()),
 		"Bot":                 bot,
 		"Theme":               widget.DecodeTheme(bot.WidgetThemeJSON),
+		"DSGVODocURL":         dsgvoURL,
 		"ChunkCount":          chunkCount,
 		"ComplianceMissing":   missing,
 		"GateBlocked":         gateBlocked,
@@ -445,6 +453,24 @@ func (s *Server) publishPrompt(w http.ResponseWriter, r *http.Request, id int64)
 	if rep.Score < bot.EvalThreshold {
 		http.Error(w,
 			fmt.Sprintf("Publish-Gate: Eval-Score %.2f unter Schwelle %.2f", rep.Score, bot.EvalThreshold),
+			http.StatusPreconditionFailed,
+		)
+		return
+	}
+	// Phase 3 Sprint 6: third + fourth doors. Embed origin allow-list
+	// must be non-empty (no wildcard publishes) and DSGVO doc URL must
+	// be present (legal-basis surface for the widget consent line).
+	if strings.TrimSpace(bot.EmbedOriginAllow) == "" {
+		http.Error(w,
+			"Publish-Gate: Erlaubte Origins (Einbettung) müssen gesetzt sein",
+			http.StatusPreconditionFailed,
+		)
+		return
+	}
+	dsgvoURL, err := storage.LoadDSGVODocURL(r.Context(), s.db, id)
+	if err != nil || strings.TrimSpace(dsgvoURL) == "" {
+		http.Error(w,
+			"Publish-Gate: DSGVO-Dokumentation-URL fehlt",
 			http.StatusPreconditionFailed,
 		)
 		return
@@ -871,6 +897,156 @@ func (s *Server) saveEmbedOrigins(w http.ResponseWriter, r *http.Request, id int
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// saveDSGVODocURL persists the bot's DSGVO documentation URL — gates
+// the third publish-gate door alongside origin-allow.
+func (s *Server) saveDSGVODocURL(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	url := strings.TrimSpace(r.PostFormValue("dsgvo_doc_url"))
+	if err := storage.SetDSGVODocURL(r.Context(), s.db, id, url); err != nil {
+		log.Printf("saveDSGVODocURL: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ─── DSGVO visitor admin (Phase 3 Sprint 6) ────────────────────────
+//
+// Routes:
+//
+//	GET  /admin/visitors/{id}            visitor record (chats + leads)
+//	POST /admin/visitors/{id}/erase      cascade-delete + audit-log
+//
+// The erase endpoint requires the operator to type the visitor_id as
+// the form's `confirm` field — defends against accidental clicks.
+func (s *Server) visitorRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/admin/visitors/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	visitorID := parts[0]
+	tail := ""
+	if len(parts) > 1 {
+		tail = parts[1]
+	}
+
+	switch tail {
+	case "":
+		if r.Method == http.MethodGet {
+			s.visitorDetail(w, r, visitorID)
+			return
+		}
+	case "erase":
+		if r.Method == http.MethodPost {
+			s.visitorErase(w, r, visitorID)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+func (s *Server) visitorDetail(w http.ResponseWriter, r *http.Request, visitorID string) {
+	rec, err := storage.LoadVisitor(r.Context(), s.db, visitorID)
+	if err != nil {
+		log.Printf("visitorDetail: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, //nolint:gosec // G705: all values HTMLEscaped below
+		`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Visitor %s</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><header class="topbar"><a class="brand" href="/admin">Everychat</a></header>
+<main class="container">
+<h1>Besucher-Akte</h1>
+<p class="muted">Visitor-ID: <code>%s</code> · %d Chats · %d Nachrichten · %d Leads</p>
+<form method="POST" action="/admin/visitors/%s/erase" onsubmit="return confirm('Daten dieses Besuchers unwiderruflich löschen?');">
+  <input type="text" name="confirm" placeholder="Visitor-ID zum Bestätigen tippen" required style="width:280px">
+  <button type="submit" style="background:var(--error);color:#fff">Daten löschen (DSGVO)</button>
+</form>
+<h2 style="margin-top:32px">Chats</h2>%s
+<h2>Leads</h2>%s
+</main></body></html>`,
+		template.HTMLEscapeString(visitorID),
+		template.HTMLEscapeString(visitorID),
+		len(rec.Chats), rec.BotMessages, len(rec.Leads),
+		template.HTMLEscapeString(visitorID),
+		renderVisitorChats(rec.Chats),
+		renderVisitorLeads(rec.Leads),
+	)
+}
+
+func renderVisitorChats(chats []storage.VisitorChat) string {
+	if len(chats) == 0 {
+		return `<p class="muted">Keine Chats.</p>`
+	}
+	var b strings.Builder
+	b.WriteString(`<ul>`)
+	for _, c := range chats {
+		fmt.Fprintf(&b, `<li><code>chat #%d</code> · Bot: %s · gestartet: %s</li>`,
+			c.ChatID,
+			template.HTMLEscapeString(c.BotName),
+			c.StartedAt.Format("2006-01-02 15:04 MST"))
+	}
+	b.WriteString(`</ul>`)
+	return b.String()
+}
+
+func renderVisitorLeads(leads []storage.VisitorLead) string {
+	if len(leads) == 0 {
+		return `<p class="muted">Keine Leads.</p>`
+	}
+	var b strings.Builder
+	b.WriteString(`<ul>`)
+	for _, l := range leads {
+		fmt.Fprintf(&b, `<li><code>lead #%d</code> · %s · %s</li>`,
+			l.LeadID,
+			template.HTMLEscapeString(l.Email),
+			l.CapturedAt.Format("2006-01-02 15:04 MST"))
+	}
+	b.WriteString(`</ul>`)
+	return b.String()
+}
+
+func (s *Server) visitorErase(w http.ResponseWriter, r *http.Request, visitorID string) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if r.PostFormValue("confirm") != visitorID {
+		http.Error(w, "Bestätigung stimmt nicht überein", http.StatusBadRequest)
+		return
+	}
+	actor := auth.SessionEmail(r.Context())
+	summary, err := storage.EraseVisitor(r.Context(), s.db, visitorID, actor)
+	if err != nil {
+		log.Printf("visitorErase: %v", err)
+		http.Error(w, "Erasure fehlgeschlagen", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, //nolint:gosec // G705: visitorID HTMLEscaped, counts are int64
+		`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Erasure-Quittung</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><header class="topbar"><a class="brand" href="/admin">Everychat</a></header>
+<main class="container">
+<section class="card">
+  <h1>Daten gelöscht</h1>
+  <p>Visitor-ID <code>%s</code> wurde gemäß DSGVO Art. 17 gelöscht.</p>
+  <p class="muted">%d Chats · %d Nachrichten · %d Leads<br>Audit-Log-Eintrag erstellt um %s</p>
+  <p><a href="/admin">Zurück zum Dashboard</a></p>
+</section>
+</main></body></html>`,
+		template.HTMLEscapeString(visitorID),
+		summary.ChatsDeleted, summary.MessagesDeleted, summary.LeadsDeleted,
+		summary.ErasedAt.Format(time.RFC3339))
 }
 
 // ─── New-bot wizard ──────────────────────────────────────────────────

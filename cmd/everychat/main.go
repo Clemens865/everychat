@@ -22,6 +22,7 @@ import (
 	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/moderation"
 	"github.com/clemenshoenig/everychat/internal/prompt"
+	"github.com/clemenshoenig/everychat/internal/retention"
 	"github.com/clemenshoenig/everychat/internal/storage"
 	"github.com/clemenshoenig/everychat/internal/web"
 	"github.com/clemenshoenig/everychat/internal/widget"
@@ -93,6 +94,14 @@ func main() {
 	leadDispatcher := lead.New(db, webhookCli)
 
 	apiSrv := api.New(db, llmClient, moderator, intentDet, leadDispatcher, devMode)
+
+	// Phase 3 Sprint 6 — DSGVO retention sweeper. Daily ticker; boot
+	// catch-up runs once on startup. The sweeper writes _retention_runs
+	// + audit_log per Art. 30 evidence requirements.
+	retScheduler := retention.NewScheduler(db)
+	retCtx, retCancel := context.WithCancel(context.Background())
+	defer retCancel()
+	retScheduler.Start(retCtx)
 
 	// Widget surface — embed.js loader + iframe shell + static assets.
 	widgetSrv, err := widget.New(db)

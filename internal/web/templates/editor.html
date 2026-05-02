@@ -64,6 +64,16 @@
           <div class="rail__label">Aufbewahrung</div>
           <div class="rail__value mono">{{.Bot.RetentionDays}} Tage</div>
         </div>
+        <div class="rail__row">
+          <div class="rail__label">DSGVO-Dokumentation-URL <span style="color:var(--warning)">*</span></div>
+          <input class="rail__input"
+                 name="dsgvo_doc_url"
+                 placeholder="https://…/dsgvo"
+                 value="{{.DSGVODocURL}}"
+                 hx-post="/admin/bots/{{.Bot.ID}}/dsgvo/doc-url"
+                 hx-trigger="change"
+                 hx-swap="none">
+        </div>
       </div>
     </section>
 
