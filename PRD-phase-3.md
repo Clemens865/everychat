@@ -19,8 +19,8 @@ Read `docs/blueprints/everychat-managed-blueprint.md` §3.5 (visitor-message dat
 - **HTML sanitization:** `DOMPurify` (vendored, locked version) for assistant-rendered Markdown inside the widget; server-side `bluemonday` strict policy as belt-and-braces.
 - **Markdown rendering:** `goldmark` server-side → sanitized HTML → into the streaming SSE payload.
 - **Moderation:** Llama Guard 3 8B via the LiteLLM sidecar (CPU quant — Q4_K_M GGUF — Phase 3; GPU lift in Phase 5). Input check + output check on the streamed completion.
-- **Lead capture:** `internal/integrations/hubspot.go` (Forms API client with the documented 50 req/10 s rate limit + retry queue), `internal/integrations/webhook.go` (SSRF guard: block private IP ranges, RFC 6890 reserved space, AWS/GCP metadata endpoints; no following redirects).
-- **Email:** the Phase-1 `Sender` interface gets a Postmark implementation (`internal/email/postmark.go`) for transactional lead handoff. Stdout impl stays for `make dev`.
+- **Lead capture:** `internal/integrations/webhook.go` (SSRF guard: block private IP ranges, RFC 6890 reserved space, AWS/GCP metadata endpoints; no following redirects). HubSpot Forms is **deferred to Phase 5** — Phase 3 ships webhook-only delivery; the dispatcher is structured so a HubSpot adapter is a drop-in addition later.
+- **Email:** the Phase-1 stdout `Sender` impl stays for the entire Phase 3. Postmark integration is **deferred to Phase 5**. Production lead summaries land in the founder's `docker compose logs everychat` output until then; the interface is stable so the Postmark swap is a one-file change.
 - **DSGVO scheduler:** `internal/retention/` — daily sweep over `chats.ended_at + bot.retention_days`; cascade-deletes via foreign keys + manual kb_vec cleanup.
 - **Build:** widget TS compiled via `esbuild` (vendored binary; no Node runtime required at server time). Output committed to `internal/widget/dist/embed.js`.
 
@@ -48,6 +48,8 @@ No real visitor traffic at scale, no multi-customer ops control plane — those 
 - ❌ LLM-generated widget code (replaced by template + AI-default-slots hybrid; locked)
 - ❌ Rich-media uploads in chat beyond text + PDF reference (Phase 5)
 - ❌ A/B widget testing or analytics dashboards (Phase 5)
+- ❌ HubSpot Forms integration — webhook delivery covers Phase 3; HubSpot adapter ships in Phase 5
+- ❌ Postmark transactional email — stdout sender stays for Phase 3; Postmark swap ships in Phase 5
 - ❌ Anything from Phases 4–6
 
 ## Repo Conventions (additions)
@@ -58,10 +60,10 @@ No real visitor traffic at scale, no multi-customer ops control plane — those 
 - `internal/api/` — versioned visitor-facing endpoints: `POST /api/v1/chat`, `POST /api/v1/lead`, `GET /api/v1/widget/{bot}/config`. Distinct from admin routes — no session cookie, signed bot-token instead.
 - `internal/moderation/` — Llama Guard 3 client (calls LiteLLM with the `guard` model alias).
 - `internal/lead/` — intent detection (Claude tool-use), summary generator, dispatcher.
-- `internal/integrations/hubspot.go`, `webhook.go` — outbound integrations with retry queue + SSRF guard.
-- `internal/email/postmark.go` — Postmark `Sender` impl alongside the stdout impl.
+- `internal/integrations/webhook.go` — outbound webhook delivery with retry queue + SSRF guard. HubSpot adapter (Phase 5) plugs into the same dispatcher.
+- `internal/email/` — Phase-1 stdout `Sender` stays. Postmark impl deferred to Phase 5.
 - `internal/retention/` — DSGVO scheduler.
-- `internal/storage/migrations/004_phase3.sql` — adds `widget_template`, `widget_theme_json`, `hubspot_form_guid`, `webhook_url`, `webhook_secret_hash` to `bots`; `lead_dispatch` table for retry queue.
+- `internal/storage/migrations/004_phase3.sql` — adds `widget_template`, `widget_theme_json`, `webhook_url`, `webhook_secret_hash` to `bots`; `lead_dispatch` table for retry queue. (`hubspot_form_guid` column lands with the Phase 5 HubSpot adapter.)
 - `tests/integration/embed_e2e_test.go` — Playwright-driven end-to-end against a real Webflow-style fixture page.
 
 ## Validation Gate (applies to every sprint)
@@ -196,18 +198,16 @@ The two security-sensitive sprints land together because they share the moderati
 - `internal/lead/dispatcher.go` — on artifact submit:
   - Persist to `leads` table (existing schema from Phase 1 migration 001)
   - Generate a 3–5 line summary via a cheap follow-up LLM call (`claude-haiku` model alias if available, otherwise reuse `claude-sonnet`)
-  - Enqueue HubSpot Forms POST + webhook POST to `lead_dispatch`; a goroutine processes the queue with exponential backoff
-  - Send the founder an email via `Sender.Send` (Postmark in compose, stdout in dev)
-- `internal/integrations/hubspot.go` — Forms API client. Respects the documented 50 req/10 s rate limit via a token-bucket. Failed deliveries retried up to 5×, then surface in the admin UI as a stuck lead.
+  - Enqueue webhook POST to `lead_dispatch`; a goroutine processes the queue with exponential backoff. (HubSpot Forms adapter slots into the same queue in Phase 5.)
+  - Send the founder a lead summary via the existing stdout `Sender` (Postmark swap is Phase 5).
 - `internal/integrations/webhook.go` — POSTs to the bot's `webhook_url` with a `lead.created` payload signed by `webhook_secret_hash` (HMAC-SHA-256). **SSRF guard**: pre-flight checks the resolved IP is not in 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fd00::/8; rejects redirects; 5-second connect timeout, 10-second total timeout.
 - Widget runtime: when the SSE stream returns a `lead_capture` event, the runtime renders the inline artifact card from a vetted template (name + email + textarea + submit). Submit calls `POST /api/v1/lead`.
 - DOMPurify integration (deferred from Sprint 2): assistant-rendered Markdown passes through DOMPurify with a strict allow-list (`p, ul, ol, li, strong, em, code, pre, a[href]`); server also runs the same content through `bluemonday` strict policy as a backstop.
-- `internal/email/postmark.go` — Postmark `Sender` implementation. Production wires it via `POSTMARK_SERVER_TOKEN`; dev keeps stdout.
 - `tests/adversarial/` — small corpus of prompt-injection probes Llama Guard must refuse (the "ignore previous instructions" / "DAN" family, plus DACH-specific exfiltration attempts). Asserted via integration test.
 
 ### Acceptance
-- Asking the bot "Ich brauche einen Termin" (or any clear lead-intent variant) produces an inline lead-capture card; submitting it persists a `leads` row + delivers to a configurable HubSpot test form + delivers to a webhook fixture endpoint.
-- Founder receives the lead summary email at the configured address.
+- Asking the bot "Ich brauche einen Termin" (or any clear lead-intent variant) produces an inline lead-capture card; submitting it persists a `leads` row + delivers to a webhook fixture endpoint with a valid HMAC-SHA-256 signature.
+- Founder sees the lead summary in `docker compose logs everychat` (stdout sender). Postmark swap is a Phase 5 follow-up.
 - Llama Guard refuses every prompt in `tests/adversarial/` with the right category label; the visitor sees a polite refusal message.
 - SSRF probe (`webhook_url=http://169.254.169.254/`) → blocked + audit-logged.
 - DOMPurify strips a `<script>` payload smuggled into a chunk → unit test asserts.
@@ -215,7 +215,10 @@ The two security-sensitive sprints land together because they share the moderati
 
 ### Out of Scope
 - Multi-step lead-capture flows (just a single artifact card in Phase 3)
-- Salesforce / Pipedrive integrations (HubSpot only — confirmed Phase 3 scope)
+- HubSpot Forms adapter — Phase 5 (the dispatcher's queue interface stays
+  HubSpot-ready so the swap is a one-file addition)
+- Postmark transactional email — Phase 5 (stdout sender stays)
+- Salesforce / Pipedrive — never in v1
 - LLM-as-judge for lead quality (Phase 4 corpus territory)
 
 ---
@@ -264,7 +267,7 @@ After Sprint 6, the founder can dogfood the bot on one real customer site for 2 
 
 1. Paste the embed snippet on Webflow / Wix / plain HTML → widget appears.
 2. Visitors chat, get streamed RAG-grounded answers, see retrieved sources, hit the lead-capture artifact, submit.
-3. Leads land in HubSpot + the configured webhook + the founder's inbox + the admin dashboard.
+3. Leads land in the configured webhook (HMAC-signed) + the admin dashboard + stdout-logged for the founder. (HubSpot + Postmark land in Phase 5.)
 4. Llama Guard refuses adversarial input + assistant outputs that violate policy.
 5. The founder erases any visitor's data on request via `/admin/visitors/<id>/erase`.
 6. Daily retention sweep auto-deletes chats past their bot's retention_days.
