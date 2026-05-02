@@ -710,3 +710,17 @@ body.editor {
   box-shadow: inset 0 0 0 4px var(--accent), inset 0 0 0 5px var(--bg-deep);
 }
 input[type="color"].rail__input { padding: 2px; cursor: pointer; }
+
+/* ─── P3-S4 — Vorschläge fragment ─── */
+.theme-suggested {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.theme-suggested .rail__row { padding: 4px 0; }
+.theme-suggested ul li {
+  padding: 2px 0;
+  list-style: disc;
+}

@@ -46,12 +46,13 @@ type Server struct {
 	sessions  *auth.Sessions
 	db        *sql.DB
 	prompt    *prompt.Generator
+	suggester *widget.Suggester
 	llm       *llm.LiteLLMClient
 	staticSub fs.FS
 }
 
 // New constructs a Server with the provided dependencies.
-func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *prompt.Generator, llmClient *llm.LiteLLMClient) (*Server, error) {
+func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *prompt.Generator, suggester *widget.Suggester, llmClient *llm.LiteLLMClient) (*Server, error) {
 	// Phase 1 pages share layout.html; the editor uses its own layout.
 	type pagespec struct{ name, layout string }
 	specs := []pagespec{
@@ -79,6 +80,7 @@ func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *promp
 		sessions:  sessions,
 		db:        db,
 		prompt:    gen,
+		suggester: suggester,
 		llm:       llmClient,
 		staticSub: staticSub,
 	}, nil
@@ -296,6 +298,11 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 	case "widget/theme":
 		if r.Method == http.MethodPost {
 			s.saveWidgetTheme(w, r, id)
+			return
+		}
+	case "widget/theme/suggest":
+		if r.Method == http.MethodPost {
+			s.suggestWidgetTheme(w, r, id)
 			return
 		}
 	}
@@ -769,6 +776,87 @@ func (s *Server) saveWidgetTheme(w http.ResponseWriter, r *http.Request, id int6
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// suggestWidgetTheme asks Claude for accent + welcome + starter prompts
+// grounded in the bot's KB, persists the suggestion, and returns an
+// HTML fragment with the new values pre-filled in the rail inputs.
+func (s *Server) suggestWidgetTheme(w http.ResponseWriter, r *http.Request, id int64) {
+	if s.suggester == nil {
+		http.Error(w, "suggester not configured", http.StatusServiceUnavailable)
+		return
+	}
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// The Suggester needs Name/Tone/Industry. We don't store Tone +
+	// Industry on the bot row in Phase 2 schema; reuse Name and let the
+	// meta-prompt's industry/tone fall through to defaults derived
+	// from the chunks themselves.
+	suggested, err := s.suggester.Suggest(r.Context(), widget.SuggestBot{ID: bot.ID, Name: bot.Name})
+	if err != nil {
+		log.Printf("suggestWidgetTheme: %v", err)
+		http.Error(w, "Vorschlag fehlgeschlagen: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// Merge: keep template + locale + radius from existing theme; override
+	// the AI-generated fields.
+	current := widget.DecodeTheme(bot.WidgetThemeJSON)
+	current.Accent = suggested.Accent
+	current.Welcome = suggested.Welcome
+	current.StarterPrompts = suggested.StarterPrompts
+
+	encoded, err := widget.EncodeTheme(current)
+	if err != nil {
+		http.Error(w, "encode theme", http.StatusInternalServerError)
+		return
+	}
+	if err := storage.UpdateWidgetTheme(r.Context(), s.db, id, encoded); err != nil {
+		log.Printf("suggestWidgetTheme persist: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Return a small fragment that swaps the accent + welcome inputs
+	// with the new values. Each input keeps its own hx-post so the
+	// founder can still tweak after acceptance.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	startersHTML := strings.Builder{}
+	for _, p := range current.StarterPrompts {
+		fmt.Fprintf(&startersHTML, `<li>%s</li>`, template.HTMLEscapeString(p))
+	}
+	_, _ = fmt.Fprintf(w, //nolint:gosec // G705: all dynamic values HTMLEscaped
+		`<div id="theme-suggested" class="theme-suggested">
+  <div class="rail__sub">Vorschläge angewendet · einzelne Felder bleiben editierbar.</div>
+  <div class="rail__row">
+    <div class="rail__label">Akzent (vorgeschlagen)</div>
+    <span style="display:inline-flex;align-items:center;gap:8px">
+      <span style="width:18px;height:18px;border-radius:4px;background:%s;border:1px solid var(--border)"></span>
+      <code>%s</code>
+    </span>
+  </div>
+  <div class="rail__row">
+    <div class="rail__label">Begrüßung (vorgeschlagen)</div>
+    <div class="rail__value" style="font-size:12.5px">%s</div>
+  </div>
+  <div class="rail__row">
+    <div class="rail__label">Vorgeschlagene Fragen</div>
+    <ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text)">%s</ul>
+  </div>
+</div>`,
+		template.HTMLEscapeString(current.Accent),
+		template.HTMLEscapeString(current.Accent),
+		template.HTMLEscapeString(current.Welcome),
+		startersHTML.String(),
+	)
+}
+
 // saveEmbedOrigins updates the origin allow-list (CSV).
 func (s *Server) saveEmbedOrigins(w http.ResponseWriter, r *http.Request, id int64) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
@@ -946,6 +1034,19 @@ func (s *Server) wizardDraft(w http.ResponseWriter, r *http.Request, id int64) {
 		log.Printf("wizardDraft persist: %v", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
+	}
+
+	// Best-effort theme suggestion — the editor's Verhalten rail reflects
+	// these defaults. Failure here is logged but doesn't fail the wizard;
+	// founder can re-trigger via "Vorschläge generieren" in the rail.
+	if s.suggester != nil {
+		if t, err := s.suggester.Suggest(r.Context(), widget.SuggestBot{ID: bot.ID, Name: bot.Name}); err == nil {
+			if encoded, err := widget.EncodeTheme(t); err == nil {
+				_ = storage.UpdateWidgetTheme(r.Context(), s.db, id, encoded)
+			}
+		} else {
+			log.Printf("wizardDraft theme suggest (best-effort): %v", err)
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprintf(w, `

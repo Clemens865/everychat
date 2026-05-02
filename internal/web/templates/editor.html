@@ -116,6 +116,17 @@
                     hx-trigger="change"
                     hx-swap="none">{{.Theme.Welcome}}</textarea>
         </div>
+        <div class="rail__row">
+          <button class="rail__btn"
+                  hx-post="/admin/bots/{{.Bot.ID}}/widget/theme/suggest"
+                  hx-target="#theme-suggested"
+                  hx-swap="outerHTML"
+                  hx-indicator="#suggest-spinner">
+            <span id="suggest-spinner" class="htmx-indicator" style="display:none">…</span>
+            Vorschläge aus KB generieren
+          </button>
+          <div id="theme-suggested"></div>
+        </div>
       </div>
     </section>
 

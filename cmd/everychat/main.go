@@ -57,14 +57,21 @@ func main() {
 	// LLM gateway — chat + embeddings.
 	llmClient := llm.NewLiteLLMClient(litellmURL)
 
-	// Prompt generator (Sprint 5). Hands the bot+KB to Claude to draft
-	// a German system prompt.
+	// Prompt generator (Phase 2 Sprint 5). Hands the bot+KB to Claude
+	// to draft a German system prompt.
 	promptGen, err := prompt.New(db, llmClient, llmClient)
 	if err != nil {
 		log.Fatalf("prompt init: %v", err)
 	}
 
-	srv, err := web.New(db, links, sessions, promptGen, llmClient)
+	// Theme suggester (Phase 3 Sprint 4). Same retrieval path as
+	// promptGen, different meta-prompt — yields a Theme JSON.
+	themeSuggester, err := widget.NewSuggester(db, llmClient, llmClient)
+	if err != nil {
+		log.Fatalf("widget suggester init: %v", err)
+	}
+
+	srv, err := web.New(db, links, sessions, promptGen, themeSuggester, llmClient)
 	if err != nil {
 		log.Fatalf("web init: %v", err)
 	}
