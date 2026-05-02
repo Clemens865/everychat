@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/clemenshoenig/everychat/internal/auth"
+	"github.com/clemenshoenig/everychat/internal/eval"
+	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
 )
@@ -41,11 +43,12 @@ type Server struct {
 	sessions  *auth.Sessions
 	db        *sql.DB
 	prompt    *prompt.Generator
+	llm       *llm.LiteLLMClient
 	staticSub fs.FS
 }
 
 // New constructs a Server with the provided dependencies.
-func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *prompt.Generator) (*Server, error) {
+func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *prompt.Generator, llmClient *llm.LiteLLMClient) (*Server, error) {
 	// Phase 1 pages share layout.html; the editor uses its own layout.
 	type pagespec struct{ name, layout string }
 	specs := []pagespec{
@@ -72,6 +75,7 @@ func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *promp
 		sessions:  sessions,
 		db:        db,
 		prompt:    gen,
+		llm:       llmClient,
 		staticSub: staticSub,
 	}, nil
 }
@@ -225,6 +229,16 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 			s.saveCompliance(w, r, id)
 			return
 		}
+	case "evals/run":
+		if r.Method == http.MethodPost {
+			s.runEvals(w, r, id)
+			return
+		}
+	case "sandbox":
+		if r.Method == http.MethodPost {
+			s.sandboxStream(w, r, id)
+			return
+		}
 	}
 	http.NotFound(w, r)
 }
@@ -329,9 +343,14 @@ func (s *Server) generatePrompt(w http.ResponseWriter, r *http.Request, id int64
 		id, template.HTMLEscapeString(draft))
 }
 
-// publishPrompt is a Sprint-5 stub: the gate logic lands in Sprint 6.
-// Right now it always refuses publish unless compliance URLs are set,
-// matching the rail's gate banner intent.
+// publishPrompt enforces the Phase 2 publish gate, then promotes draft
+// to published. The gate has two doors that must both be open:
+//
+//  1. Compliance URLs (Datenschutz + AGB) are non-null.
+//  2. The latest eval_runs row exists AND its score >= bot.eval_threshold.
+//
+// No override path. Phase 2 acceptance criterion #4: "Override is not
+// possible in Phase 2."
 func (s *Server) publishPrompt(w http.ResponseWriter, r *http.Request, id int64) {
 	bot, err := storage.LoadBot(r.Context(), s.db, id)
 	if errors.Is(err, storage.ErrBotNotFound) {
@@ -346,8 +365,239 @@ func (s *Server) publishPrompt(w http.ResponseWriter, r *http.Request, id int64)
 		http.Error(w, "Publish-Gate: Datenschutz-URL und AGB-URL erforderlich", http.StatusPreconditionFailed)
 		return
 	}
-	// Eval gate stays pending until Sprint 6 wires eval_runs lookup.
-	http.Error(w, "Publish-Gate: Eval-Lauf ausstehend (Sprint 6)", http.StatusPreconditionFailed)
+	rep, err := eval.LatestRun(r.Context(), s.db, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "Publish-Gate: Goldfragen wurden noch nie ausgeführt", http.StatusPreconditionFailed)
+		return
+	}
+	if err != nil {
+		log.Printf("publishPrompt: latest eval: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if rep.Score < bot.EvalThreshold {
+		http.Error(w,
+			fmt.Sprintf("Publish-Gate: Eval-Score %.2f unter Schwelle %.2f", rep.Score, bot.EvalThreshold),
+			http.StatusPreconditionFailed,
+		)
+		return
+	}
+	if err := storage.PromoteDraftToPublished(r.Context(), s.db, id); err != nil {
+		log.Printf("publishPrompt: promote: %v", err)
+		http.Error(w, "publish failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<div class="gate gate--ready"><span class="gate__icon">✓</span><div class="gate__text">Veröffentlicht — Eval %d/%d (%.2f).</div></div>`,
+		rep.Passed, rep.Total, rep.Score)
+}
+
+// runEvals executes the bot's golden-questions file synchronously and
+// returns an HTML scorecard fragment. Path defaults to the demo file
+// shipped with the repo; ?file=<path> overrides for callers with a
+// custom YAML.
+func (s *Server) runEvals(w http.ResponseWriter, r *http.Request, id int64) {
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	path := strings.TrimSpace(r.URL.Query().Get("file"))
+	if path == "" {
+		// Fall back to the demo file. Phase 3 lets the founder upload
+		// per-bot YAML via the eval modal.
+		path = "tests/eval/" + bot.Name + ".yaml"
+	}
+	runner := eval.NewRunner(s.db, s.llm)
+	rep, err := runner.Run(r.Context(), eval.Bot{
+		ID:           bot.ID,
+		Name:         bot.Name,
+		SystemPrompt: bot.SystemPrompt,
+		Threshold:    bot.EvalThreshold,
+	}, path)
+	if err != nil {
+		log.Printf("runEvals: %v", err)
+		http.Error(w, "eval failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	verdict := "unter Schwelle"
+	if rep.MeetsThreshold() {
+		verdict = "über Schwelle"
+	}
+	// All variadic args are either fixed-domain strings ("über/unter
+	// Schwelle"), numeric scores, or operator-supplied paths run through
+	// template.HTMLEscapeString — safe to splice.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, //nolint:gosec // G705: path is HTML-escaped above; other args have fixed domain
+		`<div class="eval-scorecard"><strong>%d/%d (%.2f)</strong> — %s %.2f<br><small>%s</small></div>`,
+		rep.Passed, rep.Total, rep.Score, verdict, rep.Threshold,
+		template.HTMLEscapeString(path),
+	)
+}
+
+// sandboxStream handles the test-chat SSE: embed the user message, RAG
+// over kb_vec, stream the LLM completion back, and persist the turn.
+// Wire format: text/event-stream with two event names —
+//
+//	event: token   data: <token chunk>
+//	event: done    data: {input_tokens, output_tokens, sources: [...]}
+//
+// The browser handles the rest (see editor.html sandbox script).
+func (s *Server) sandboxStream(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	userMsg := strings.TrimSpace(r.PostFormValue("message"))
+	if userMsg == "" {
+		http.Error(w, "empty message", http.StatusBadRequest)
+		return
+	}
+
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// 1. Embed the question.
+	vecs, err := s.llm.Embed(r.Context(), []string{userMsg})
+	if err != nil || len(vecs) != 1 {
+		log.Printf("sandbox: embed: %v", err)
+		http.Error(w, "embed failed", http.StatusBadGateway)
+		return
+	}
+
+	// 2. RAG retrieval — top 5 chunks for this bot.
+	hits, err := storage.SearchChunks(r.Context(), s.db, id, vecs[0], 5)
+	if err != nil {
+		log.Printf("sandbox: search: %v", err)
+		http.Error(w, "retrieval failed", http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Build the system prompt: bot's draft (or published) + retrieved
+	// context. Draft wins so the founder feels prompt edits immediately.
+	sys := bot.DraftPrompt
+	if strings.TrimSpace(sys) == "" {
+		sys = bot.SystemPrompt
+	}
+	if len(hits) > 0 {
+		var ctx strings.Builder
+		ctx.WriteString("\n\nRelevante Auszüge aus der Wissensbasis:\n")
+		for i, h := range hits {
+			fmt.Fprintf(&ctx, "[%d] %s\n%s\n\n", i+1, h.Source, truncate(h.Content, 800))
+		}
+		sys += ctx.String()
+	}
+
+	// 4. Stream tokens via SSE.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+
+	stream, err := s.llm.Stream(r.Context(), llm.ChatRequest{
+		System:      sys,
+		Messages:    []llm.Message{{Role: llm.RoleUser, Content: userMsg}},
+		MaxTokens:   600,
+		Temperature: 0.4,
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
+	}
+
+	var answer strings.Builder
+	var inTok, outTok int
+	for chunk := range stream {
+		if chunk.Err != nil {
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", chunk.Err.Error())
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return
+		}
+		if chunk.Delta != "" {
+			answer.WriteString(chunk.Delta)
+			// SSE data lines can't contain raw newlines — split if needed.
+			for _, line := range strings.Split(chunk.Delta, "\n") {
+				_, _ = fmt.Fprintf(w, "event: token\ndata: %s\n", line)
+			}
+			_, _ = fmt.Fprint(w, "\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if chunk.Usage != nil {
+			inTok = chunk.Usage.InputTokens
+			outTok = chunk.Usage.OutputTokens
+		}
+	}
+
+	// 5. Final event with sources + token usage.
+	type sourceOut struct {
+		Source   string  `json:"source"`
+		Excerpt  string  `json:"excerpt"`
+		Distance float64 `json:"distance"`
+	}
+	srcs := make([]sourceOut, 0, len(hits))
+	for _, h := range hits {
+		srcs = append(srcs, sourceOut{Source: h.Source, Excerpt: truncate(h.Content, 160), Distance: h.Distance})
+	}
+	doneJSON, _ := json.Marshal(map[string]any{
+		"input_tokens":  inTok,
+		"output_tokens": outTok,
+		"sources":       srcs,
+	})
+	_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", string(doneJSON))
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	// 6. Persist the turn (best-effort; don't fail the response).
+	go s.persistSandboxTurn(id, userMsg, answer.String(), inTok, outTok)
+}
+
+// persistSandboxTurn writes a chats row + two messages rows for one user
+// turn against the founder's sandbox visitor_id. Best-effort: errors only
+// log because the response has already left the building.
+func (s *Server) persistSandboxTurn(botID int64, user, assistant string, inTok, outTok int) {
+	res, err := s.db.Exec(`INSERT INTO chats (bot_id, visitor_id) VALUES (?, ?)`, botID, "founder-sandbox")
+	if err != nil {
+		log.Printf("sandbox persist chat: %v", err)
+		return
+	}
+	chatID, _ := res.LastInsertId()
+	if _, err := s.db.Exec(
+		`INSERT INTO messages (chat_id, role, content, tokens_in) VALUES (?, 'user', ?, ?)`,
+		chatID, user, inTok); err != nil {
+		log.Printf("sandbox persist user msg: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO messages (chat_id, role, content, tokens_out) VALUES (?, 'assistant', ?, ?)`,
+		chatID, assistant, outTok); err != nil {
+		log.Printf("sandbox persist assistant msg: %v", err)
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func (s *Server) saveCompliance(w http.ResponseWriter, r *http.Request, id int64) {

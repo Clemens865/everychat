@@ -4,6 +4,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/email"
+	"github.com/clemenshoenig/everychat/internal/eval"
 	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
@@ -26,6 +29,13 @@ const (
 )
 
 func main() {
+	// Phase 6 surface: `everychat eval --bot-name=X --questions=Y` runs
+	// the same code path as `everychat-ops eval`. Lets the public CLI
+	// stay consolidated under a single binary.
+	if len(os.Args) > 1 && os.Args[1] == "eval" {
+		os.Exit(runEvalCLI(os.Args[2:]))
+	}
+
 	addr := getenv("EVERYCHAT_ADDR", defaultAddr)
 	dbPath := getenv("EVERYCHAT_DB_PATH", storage.DefaultDSN)
 	baseURL := getenv("EVERYCHAT_BASE_URL", defaultBaseURL)
@@ -52,7 +62,7 @@ func main() {
 		log.Fatalf("prompt init: %v", err)
 	}
 
-	srv, err := web.New(db, links, sessions, promptGen)
+	srv, err := web.New(db, links, sessions, promptGen, llmClient)
 	if err != nil {
 		log.Fatalf("web init: %v", err)
 	}
@@ -93,4 +103,53 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// runEvalCLI is the `everychat eval` subcommand — parity with
+// everychat-ops eval but accessible from the consumer-facing binary.
+// Returns the desired exit code.
+func runEvalCLI(args []string) int {
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	botID := fs.Int64("bot-id", 0, "bot id (mutually exclusive with --bot-name)")
+	botName := fs.String("bot-name", "", "bot name (e.g. steuerkanzlei-demo)")
+	questions := fs.String("questions", "", "path to golden-questions YAML (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *questions == "" || (*botID == 0 && *botName == "") {
+		fmt.Fprintln(os.Stderr, "usage: everychat eval --bot-name=<n> --questions=<path>")
+		return 2
+	}
+
+	dbPath := getenv("EVERYCHAT_DB_PATH", storage.DefaultDSN)
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open db: %v\n", err)
+		return 1
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	var bot eval.Bot
+	if *botID != 0 {
+		bot, err = eval.LoadBot(ctx, db, *botID)
+	} else {
+		bot, err = eval.LookupBotByName(ctx, db, *botName)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load bot: %v\n", err)
+		return 1
+	}
+
+	chat := llm.NewLiteLLMClient(getenv("EVERYCHAT_LITELLM_URL", defaultLiteLLMURL))
+	rep, err := eval.NewRunner(db, chat).Run(ctx, bot, *questions)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "eval: %v\n", err)
+		return 1
+	}
+	eval.PrintScorecard(os.Stdout, rep)
+	if !rep.MeetsThreshold() {
+		return 2
+	}
+	return 0
 }

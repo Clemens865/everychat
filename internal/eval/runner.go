@@ -162,3 +162,20 @@ func LookupBotByName(ctx context.Context, db *sql.DB, name string) (Bot, error) 
 	}
 	return b, nil
 }
+
+// LatestRun returns the most recently finished eval_runs row for a bot,
+// or sql.ErrNoRows if none exists. Used by the publish-gate middleware
+// to decide whether the bot is over its threshold.
+func LatestRun(ctx context.Context, db *sql.DB, botID int64) (Report, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT bot_id, questions_file, total, passed, score, started_at, finished_at
+		FROM eval_runs
+		WHERE bot_id = ?
+		ORDER BY id DESC
+		LIMIT 1
+	`, botID)
+	var rep Report
+	var botIDOut int64
+	err := row.Scan(&botIDOut, &rep.QuestionsFile, &rep.Total, &rep.Passed, &rep.Score, &rep.StartedAt, &rep.FinishedAt)
+	return rep, err
+}

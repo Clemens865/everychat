@@ -122,13 +122,151 @@
     </footer>
   </section>
 
-  {{/* ─── Column 3 — Stage placeholder (Sprint 6 fills with widget canvas) ─── */}}
+  {{/* ─── Column 3 — Live preview: customer site + embedded widget ─── */}}
   <section class="col stage">
     <header class="stage__head">Live-Vorschau · Entwurf</header>
-    <div class="stage__placeholder">
-      <h3>Wird in Sprint 6 aktiviert</h3>
-      <p>Hier rendert das eingebettete Chat-Widget — eine 1:1-Vorschau dessen, was der Kunde später als <code>&lt;script&gt;</code>-Snippet einbettet. RAG-Antworten streamen via SSE.</p>
+
+    <div class="stage__viewport">
+      <div class="browser">
+        <div class="browser__chrome">
+          <span class="browser__dot"></span><span class="browser__dot"></span><span class="browser__dot"></span>
+          <span class="browser__url">https://{{if .Bot.PrivacyPolicyURL.Valid}}{{.Bot.Name}}.de{{else}}{{.Bot.Name}}.de{{end}}/</span>
+        </div>
+        <div class="csite">
+          <nav class="csite__nav">
+            <div class="csite__logo">{{.Bot.Name}}</div>
+            <div class="csite__nav-links"><a class="active">Start</a><a>Leistungen</a><a>Kontakt</a></div>
+          </nav>
+          <section class="csite__hero">
+            <p class="csite__lede">Diese Seite simuliert die Kundenwebsite. Das Widget rechts unten ist die 1:1-Vorschau dessen, was der Kunde in Phase 3 als <code>&lt;script&gt;</code>-Snippet einbettet — Antworten kommen vom aktuellen <em>Entwurfs</em>-Prompt mit RAG.</p>
+          </section>
+        </div>
+
+        <aside class="widget" role="region" aria-label="Test-Chat">
+          <header class="w-head">
+            <span class="w-avatar">{{slice .Bot.Name 0 2}}</span>
+            <div class="w-id">
+              <div class="w-name">{{.Bot.Name}}</div>
+              <div class="w-status">Online · Test-Vorschau</div>
+            </div>
+            <button class="w-ctl" type="button" aria-label="Schließen">×</button>
+          </header>
+
+          <div class="w-body" id="w-body" aria-live="polite">
+            <div class="w-msg w-msg--bot">
+              <div class="w-bubble">Guten Tag! Stellen Sie eine Frage — die Antwort nutzt den aktuellen Entwurfs-Prompt und retrievete Quellen.</div>
+            </div>
+          </div>
+
+          <footer class="w-foot">
+            <form id="sandbox-form" class="w-input-shell" autocomplete="off">
+              <input id="sandbox-input" name="message" class="w-input" placeholder="Frage stellen …" required>
+              <button class="w-send" type="submit" aria-label="Senden">→</button>
+            </form>
+            <p class="w-consent">
+              {{if .Bot.PrivacyPolicyURL.Valid}}
+                Datenschutz aktiv · <a href="{{.Bot.PrivacyPolicyURL.String}}">Hinweise</a>{{if .Bot.AGBURL.Valid}} · <a href="{{.Bot.AGBURL.String}}">AGB</a>{{end}}
+              {{else}}
+                <span style="color:var(--warning)">Datenschutz/AGB-URLs fehlen — siehe Compliance-Rail</span>
+              {{end}}
+            </p>
+          </footer>
+          <div class="w-poweredby">Powered by <b>Everychat</b></div>
+        </aside>
+      </div>
     </div>
+
+    <script>
+      (function(){
+        const form  = document.getElementById('sandbox-form');
+        const input = document.getElementById('sandbox-input');
+        const body  = document.getElementById('w-body');
+
+        function append(role, text) {
+          const wrap = document.createElement('div');
+          wrap.className = 'w-msg w-msg--' + role;
+          const bubble = document.createElement('div');
+          bubble.className = 'w-bubble';
+          bubble.textContent = text;
+          wrap.appendChild(bubble);
+          body.appendChild(wrap);
+          body.scrollTop = body.scrollHeight;
+          return bubble;
+        }
+
+        function appendSources(bubble, sources) {
+          if (!sources || !sources.length) return;
+          const det = document.createElement('details');
+          det.className = 'w-sources-det';
+          const sum = document.createElement('summary');
+          sum.textContent = sources.length + ' Quellen anzeigen';
+          det.appendChild(sum);
+          const ul = document.createElement('ul');
+          sources.forEach(s => {
+            const li = document.createElement('li');
+            const score = (1 - (s.distance || 0)).toFixed(3);
+            li.innerHTML = '<code>' + s.source + '</code> · <span class="w-src-score">' + score + '</span><br><span class="w-src-excerpt">' + s.excerpt + '</span>';
+            ul.appendChild(li);
+          });
+          det.appendChild(ul);
+          bubble.parentElement.appendChild(det);
+        }
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const msg = input.value.trim();
+          if (!msg) return;
+          append('user', msg);
+          input.value = '';
+          input.disabled = true;
+
+          const botBubble = append('bot', '');
+          botBubble.innerHTML = '<span class="w-cursor"></span>';
+
+          const fd = new FormData();
+          fd.append('message', msg);
+          const res = await fetch('/admin/bots/{{.Bot.ID}}/sandbox', { method: 'POST', body: fd });
+          if (!res.ok) {
+            botBubble.textContent = 'Fehler: ' + res.status + ' ' + await res.text();
+            input.disabled = false; input.focus();
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let answer = '';
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            // SSE events split on blank lines.
+            let idx;
+            while ((idx = buffer.indexOf('\n\n')) >= 0) {
+              const event = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 2);
+              const lines = event.split('\n');
+              const ev = (lines.find(l => l.startsWith('event:')) || '').slice(6).trim();
+              const data = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).replace(/^ /, '')).join('\n');
+              if (ev === 'token') {
+                answer += data + (data.endsWith('\n') ? '' : '');
+                botBubble.textContent = answer;
+                body.scrollTop = body.scrollHeight;
+              } else if (ev === 'done') {
+                try {
+                  const meta = JSON.parse(data);
+                  appendSources(botBubble, meta.sources);
+                } catch (e) { /* ignore */ }
+              } else if (ev === 'error') {
+                botBubble.textContent = 'Fehler: ' + data;
+              }
+            }
+          }
+          input.disabled = false; input.focus();
+        });
+      })();
+    </script>
   </section>
 
 </main>
