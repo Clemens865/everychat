@@ -667,3 +667,26 @@ body.editor {
   margin: 12px 0 0;
 }
 .bots__header .ghost-btn { text-decoration: none; }
+
+/* ─── Phase 3 Sprint 1 — Einbettung rail group ─── */
+.embed-token {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.embed-token__value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  word-break: break-all;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  background: rgba(108,140,255,0.08);
+  border-radius: 4px;
+}
+.embed-token .rail__sub code {
+  font-size: 10.5px;
+  color: var(--muted);
+}

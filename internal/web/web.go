@@ -83,8 +83,16 @@ func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *promp
 	}, nil
 }
 
+// RouteRegistrar lets callers attach extra routes (e.g. the visitor-API
+// surface) to the same mux as the admin handlers, so a single
+// http.Server hosts both. Phase 3 wires the api.Server through this hook.
+type RouteRegistrar interface {
+	Routes(mux *http.ServeMux)
+}
+
 // Routes returns the configured http.Handler with all routes wired up.
-func (s *Server) Routes() http.Handler {
+// `extras` lets callers register additional routes on the same mux.
+func (s *Server) Routes(extras ...RouteRegistrar) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", s.healthz)
@@ -95,8 +103,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/logout", s.logout)
 	mux.Handle("/admin", s.sessions.Require(http.HandlerFunc(s.admin)))
 	mux.Handle("/admin/bots/", s.sessions.Require(http.HandlerFunc(s.botRoutes)))
-	mux.HandleFunc("/", s.root)
 
+	for _, e := range extras {
+		e.Routes(mux)
+	}
+
+	mux.HandleFunc("/", s.root)
 	return mux
 }
 
@@ -263,6 +275,16 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 	case "wizard/draft":
 		if r.Method == http.MethodPost {
 			s.wizardDraft(w, r, id)
+			return
+		}
+	case "embed/token":
+		if r.Method == http.MethodPost {
+			s.regenEmbedToken(w, r, id)
+			return
+		}
+	case "embed/origins":
+		if r.Method == http.MethodPost {
+			s.saveEmbedOrigins(w, r, id)
 			return
 		}
 	}
@@ -636,6 +658,41 @@ func (s *Server) saveCompliance(w http.ResponseWriter, r *http.Request, id int64
 	agb := strings.TrimSpace(r.PostFormValue("agb_url"))
 	if err := storage.SetCompliance(r.Context(), s.db, id, privacy, agb); err != nil {
 		log.Printf("saveCompliance: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// regenEmbedToken issues a new public bot-token and returns an HTML
+// fragment showing the cleartext value ONCE. Subsequent calls invalidate
+// the previous token (sha256 collision-resistance is doing the work).
+func (s *Server) regenEmbedToken(w http.ResponseWriter, r *http.Request, id int64) {
+	token, err := auth.IssueEmbedToken(r.Context(), s.db, id)
+	if err != nil {
+		log.Printf("regenEmbedToken: %v", err)
+		http.Error(w, "Token konnte nicht erzeugt werden", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, //nolint:gosec // G705: token is hex-encoded, ids are int64
+		`<div class="embed-token">
+  <div class="rail__label">Bot-Token (einmalig sichtbar)</div>
+  <code class="embed-token__value">%s</code>
+  <div class="rail__sub">Snippet:<br><code>&lt;script src="/embed.js" data-bot="%s"&gt;&lt;/script&gt;</code></div>
+</div>`, template.HTMLEscapeString(token), template.HTMLEscapeString(token))
+}
+
+// saveEmbedOrigins updates the origin allow-list (CSV).
+func (s *Server) saveEmbedOrigins(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	csv := strings.TrimSpace(r.PostFormValue("origins"))
+	if err := storage.SetEmbedOriginAllow(r.Context(), s.db, id, csv); err != nil {
+		log.Printf("saveEmbedOrigins: %v", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
 	}

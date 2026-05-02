@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clemenshoenig/everychat/internal/api"
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/email"
 	"github.com/clemenshoenig/everychat/internal/eval"
@@ -67,9 +68,15 @@ func main() {
 		log.Fatalf("web init: %v", err)
 	}
 
+	// Visitor-facing API surface. devMode=true means an empty
+	// embed_origin_allow on a bot is treated as "any origin" (only safe
+	// for local dev).
+	devMode := getenv("EVERYCHAT_DEV_MODE", "0") == "1"
+	apiSrv := api.New(db, llmClient, devMode)
+
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           srv.Routes(),
+		Handler:           srv.Routes(apiSrv),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

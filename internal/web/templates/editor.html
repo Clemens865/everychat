@@ -75,6 +75,33 @@
     </section>
 
     <section class="rail__group">
+      <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Einbettung</header>
+      <div class="rail__body">
+        <div class="rail__row">
+          <div class="rail__label">Erlaubte Origins (CSV)</div>
+          <input class="rail__input"
+                 name="origins"
+                 placeholder="https://kanzlei-mustermann.de"
+                 value="{{.Bot.EmbedOriginAllow}}"
+                 hx-post="/admin/bots/{{.Bot.ID}}/embed/origins"
+                 hx-trigger="change"
+                 hx-swap="none">
+          <div class="rail__sub">Leer = nur lokale Entwicklung. Mehrere Domains mit Komma trennen.</div>
+        </div>
+        <div class="rail__row">
+          <button class="rail__btn"
+                  hx-post="/admin/bots/{{.Bot.ID}}/embed/token"
+                  hx-target="#embed-token-out"
+                  hx-swap="innerHTML"
+                  hx-confirm="Aktuellen Bot-Token ungültig machen und neuen erzeugen?">
+            {{if .Bot.EmbedTokenHash.Valid}}Token neu erzeugen{{else}}Token erzeugen{{end}}
+          </button>
+          <div id="embed-token-out" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="rail__group">
       <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Evaluation</header>
       <div class="rail__body">
         <div class="rail__row">

@@ -24,6 +24,14 @@ type Bot struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	PublishedAt      sql.NullTime
+
+	// Phase 3 — widget surface
+	WidgetTemplate   string         // 'bubble' | 'inline'
+	WidgetThemeJSON  string         // raw JSON; parsed by internal/widget
+	EmbedTokenHash   sql.NullString // sha256 of the public bot-token
+	EmbedOriginAllow string         // CSV of allowed origins; empty = dev-only
+	WebhookURL       sql.NullString
+	WebhookSecretSet bool // true if webhook_secret_hash IS NOT NULL
 }
 
 // ErrBotNotFound is returned when a Bot lookup misses.
@@ -35,7 +43,10 @@ func ListBots(ctx context.Context, db *sql.DB) ([]Bot, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, tenant_id, name, system_prompt, draft_prompt, status,
 		       privacy_policy_url, agb_url, retention_days, eval_threshold,
-		       created_at, updated_at, published_at
+		       created_at, updated_at, published_at,
+		       widget_template, widget_theme_json, embed_token_hash,
+		       embed_origin_allow, webhook_url,
+		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set
 		FROM bots
 		ORDER BY id ASC
 	`)
@@ -63,7 +74,10 @@ func LoadBot(ctx context.Context, db *sql.DB, id int64) (Bot, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, tenant_id, name, system_prompt, draft_prompt, status,
 		       privacy_policy_url, agb_url, retention_days, eval_threshold,
-		       created_at, updated_at, published_at
+		       created_at, updated_at, published_at,
+		       widget_template, widget_theme_json, embed_token_hash,
+		       embed_origin_allow, webhook_url,
+		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set
 		FROM bots WHERE id = ?
 	`, id)
 	b, err := scanBot(row)
@@ -192,9 +206,53 @@ func scanBot(s rowScanner) (Bot, error) {
 		&b.ID, &b.TenantID, &b.Name, &b.SystemPrompt, &b.DraftPrompt, &b.Status,
 		&b.PrivacyPolicyURL, &b.AGBURL, &b.RetentionDays, &b.EvalThreshold,
 		&b.CreatedAt, &b.UpdatedAt, &b.PublishedAt,
+		&b.WidgetTemplate, &b.WidgetThemeJSON, &b.EmbedTokenHash,
+		&b.EmbedOriginAllow, &b.WebhookURL, &b.WebhookSecretSet,
 	)
 	if err != nil {
 		return Bot{}, err
 	}
 	return b, nil
+}
+
+// SetEmbedTokenHash stores sha256(token) for a bot. The cleartext token is
+// returned to the caller (admin UI) once and never persisted.
+func SetEmbedTokenHash(ctx context.Context, db *sql.DB, id int64, tokenHash string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET embed_token_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		tokenHash, id)
+	if err != nil {
+		return fmt.Errorf("SetEmbedTokenHash: %w", err)
+	}
+	return nil
+}
+
+// LookupBotByEmbedTokenHash resolves a bot from sha256(token). Used by the
+// visitor-facing /api/v1/* endpoints.
+func LookupBotByEmbedTokenHash(ctx context.Context, db *sql.DB, tokenHash string) (Bot, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, name, system_prompt, draft_prompt, status,
+		       privacy_policy_url, agb_url, retention_days, eval_threshold,
+		       created_at, updated_at, published_at,
+		       widget_template, widget_theme_json, embed_token_hash,
+		       embed_origin_allow, webhook_url,
+		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set
+		FROM bots WHERE embed_token_hash = ?
+	`, tokenHash)
+	b, err := scanBot(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Bot{}, ErrBotNotFound
+	}
+	return b, err
+}
+
+// SetEmbedOriginAllow updates the CSV of allowed origins for a bot's widget.
+func SetEmbedOriginAllow(ctx context.Context, db *sql.DB, id int64, csv string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET embed_origin_allow = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		csv, id)
+	if err != nil {
+		return fmt.Errorf("SetEmbedOriginAllow: %w", err)
+	}
+	return nil
 }
