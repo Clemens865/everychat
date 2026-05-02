@@ -22,10 +22,13 @@
   var closeBtn = document.getElementById("w-close");
   var starters = document.getElementById("w-starters");
 
-  closeBtn.addEventListener("click", function () {
-    // Tell the parent (embed.js launcher) to hide the iframe.
-    window.parent.postMessage({ type: "everychat:close" }, "*");
-  });
+  // Inline variant: no close button in the template.
+  if (closeBtn) {
+    closeBtn.addEventListener("click", function () {
+      // Tell the parent (embed.js launcher) to hide the iframe.
+      window.parent.postMessage({ type: "everychat:close" }, "*");
+    });
+  }
 
   if (starters) {
     starters.querySelectorAll(".w-starter").forEach(function (b) {

@@ -44,17 +44,24 @@ type Server struct {
 
 // New constructs a widget Server.
 func New(db *sql.DB) (*Server, error) {
-	t, err := template.ParseFS(templateFS, "templates/bubble.html")
+	bubble, err := template.ParseFS(templateFS, "templates/bubble.html")
 	if err != nil {
 		return nil, fmt.Errorf("widget: parse bubble: %w", err)
+	}
+	inline, err := template.ParseFS(templateFS, "templates/inline.html")
+	if err != nil {
+		return nil, fmt.Errorf("widget: parse inline: %w", err)
 	}
 	assetsSub, err := fs.Sub(assetFS, "assets")
 	if err != nil {
 		return nil, fmt.Errorf("widget: assets sub: %w", err)
 	}
 	return &Server{
-		db:        db,
-		pages:     map[string]*template.Template{"bubble": t},
+		db: db,
+		pages: map[string]*template.Template{
+			"bubble": bubble,
+			"inline": inline,
+		},
 		assetsSub: assetsSub,
 	}, nil
 }
@@ -79,7 +86,9 @@ func (s *Server) shellRouter(w http.ResponseWriter, r *http.Request) {
 	s.shell(w, r, parts[0])
 }
 
-// shell renders the iframe HTML for a given bot token.
+// shell renders the iframe HTML for a given bot token. Picks bubble or
+// inline based on bot.WidgetTemplate; both templates consume the same
+// Theme so the visual contract stays single-sourced.
 func (s *Server) shell(w http.ResponseWriter, r *http.Request, token string) {
 	bot, err := storage.LookupBotByEmbedTokenHash(r.Context(), s.db, auth.HashEmbedToken(token))
 	if errors.Is(err, storage.ErrBotNotFound) {
@@ -92,11 +101,17 @@ func (s *Server) shell(w http.ResponseWriter, r *http.Request, token string) {
 		return
 	}
 
-	theme := decodeTheme(bot.WidgetThemeJSON)
+	theme := DecodeTheme(bot.WidgetThemeJSON)
 
-	// Strict CSP: scripts come from same origin only; no inline eval; no
-	// remote network calls except the everychat origin (the chat SSE
-	// endpoint resolves via the page's own origin so 'self' covers it).
+	tmplName := bot.WidgetTemplate
+	if _, ok := s.pages[tmplName]; !ok {
+		tmplName = "bubble" // safe fallback if column is empty or unknown
+	}
+
+	// Strict CSP: scripts same-origin only, no inline eval, no remote
+	// network. style-src 'unsafe-inline' is required because Theme.CSSVars
+	// is splice-rendered by the html/template; the values are sanitized
+	// (sanitizeColor / sanitizeLength) so injection is contained.
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'self'; "+
 			"script-src 'self'; "+
@@ -108,18 +123,28 @@ func (s *Server) shell(w http.ResponseWriter, r *http.Request, token string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
+	displayName := theme.Name
+	if strings.TrimSpace(displayName) == "" {
+		displayName = bot.Name
+	}
+
 	data := map[string]any{
 		"BotToken":       token,
-		"BotDisplayName": coalesce(theme.Name, bot.Name),
-		"Welcome":        coalesce(theme.Welcome, "Guten Tag — wie kann ich helfen?"),
+		"BotDisplayName": displayName,
+		"Welcome":        theme.Welcome,
 		"StarterPrompts": theme.StarterPrompts,
-		"Accent":         coalesce(theme.Accent, "#2f4cff"),
-		"Locale":         coalesce(theme.Locale, "de"),
-		"PrivacyURL":     nullableString(bot.PrivacyPolicyURL),
-		"AGBURL":         nullableString(bot.AGBURL),
-		"Avatar":         abbreviate(coalesce(theme.Name, bot.Name), 2),
+		"Accent":         theme.Accent,
+		"Locale":         theme.Locale,
+		// G203: theme.CSSVars output is built only from sanitized values
+		// (sanitizeColor restricts to #hex; sanitizeLength to digit+px/rem/em)
+		// — wrapping as template.CSS is the documented escape-hatch for
+		// already-trusted CSS strings.
+		"CSSVars":    template.CSS(theme.CSSVars()), //nolint:gosec // G203
+		"PrivacyURL": nullableString(bot.PrivacyPolicyURL),
+		"AGBURL":     nullableString(bot.AGBURL),
+		"Avatar":     abbreviate(displayName, 2),
 	}
-	if err := s.pages["bubble"].ExecuteTemplate(w, "bubble", data); err != nil {
+	if err := s.pages[tmplName].ExecuteTemplate(w, tmplName, data); err != nil {
 		log.Printf("widget shell render: %v", err)
 	}
 }
@@ -141,32 +166,6 @@ func (s *Server) embedJS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(body)
-}
-
-// theme is the on-disk shape of bots.widget_theme_json. Lifted into the
-// widget package once Sprint 3 ships the typed Theme struct.
-type theme struct {
-	Name           string   `json:"name"`
-	Welcome        string   `json:"welcome"`
-	StarterPrompts []string `json:"starter_prompts"`
-	Accent         string   `json:"accent"`
-	Locale         string   `json:"locale"`
-}
-
-func decodeTheme(raw string) theme {
-	var t theme
-	if raw == "" {
-		return t
-	}
-	_ = jsonUnmarshal([]byte(raw), &t)
-	return t
-}
-
-func coalesce(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
 }
 
 func nullableString(n sql.NullString) string {

@@ -246,6 +246,37 @@ func LookupBotByEmbedTokenHash(ctx context.Context, db *sql.DB, tokenHash string
 	return b, err
 }
 
+// SetWidgetTemplate updates which template variant the bot uses
+// ("bubble" | "inline"). Other values are rejected at this layer so a
+// downstream template-load can't spawn a 500.
+func SetWidgetTemplate(ctx context.Context, db *sql.DB, id int64, tmpl string) error {
+	switch tmpl {
+	case "bubble", "inline":
+	default:
+		return fmt.Errorf("SetWidgetTemplate: unknown template %q", tmpl)
+	}
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET widget_template = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		tmpl, id)
+	if err != nil {
+		return fmt.Errorf("SetWidgetTemplate: %w", err)
+	}
+	return nil
+}
+
+// UpdateWidgetTheme stores the bot's theme JSON. Validation happens at
+// the widget layer (Theme.CSSVars sanitizes); we trust the caller to
+// hand us valid JSON.
+func UpdateWidgetTheme(ctx context.Context, db *sql.DB, id int64, themeJSON string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET widget_theme_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		themeJSON, id)
+	if err != nil {
+		return fmt.Errorf("UpdateWidgetTheme: %w", err)
+	}
+	return nil
+}
+
 // SetEmbedOriginAllow updates the CSV of allowed origins for a bot's widget.
 func SetEmbedOriginAllow(ctx context.Context, db *sql.DB, id int64, csv string) error {
 	_, err := db.ExecContext(ctx,

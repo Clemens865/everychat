@@ -27,6 +27,7 @@ import (
 	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
+	"github.com/clemenshoenig/everychat/internal/widget"
 )
 
 //go:embed templates/*.html
@@ -287,6 +288,16 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 			s.saveEmbedOrigins(w, r, id)
 			return
 		}
+	case "widget/template":
+		if r.Method == http.MethodPost {
+			s.saveWidgetTemplate(w, r, id)
+			return
+		}
+	case "widget/theme":
+		if r.Method == http.MethodPost {
+			s.saveWidgetTheme(w, r, id)
+			return
+		}
 	}
 	http.NotFound(w, r)
 }
@@ -330,6 +341,7 @@ func (s *Server) editor(w http.ResponseWriter, r *http.Request, id int64) {
 		"Title":               bot.Name,
 		"Email":               auth.SessionEmail(r.Context()),
 		"Bot":                 bot,
+		"Theme":               widget.DecodeTheme(bot.WidgetThemeJSON),
 		"ChunkCount":          chunkCount,
 		"ComplianceMissing":   missing,
 		"GateBlocked":         gateBlocked,
@@ -681,6 +693,80 @@ func (s *Server) regenEmbedToken(w http.ResponseWriter, r *http.Request, id int6
   <code class="embed-token__value">%s</code>
   <div class="rail__sub">Snippet:<br><code>&lt;script src="/embed.js" data-bot="%s"&gt;&lt;/script&gt;</code></div>
 </div>`, template.HTMLEscapeString(token), template.HTMLEscapeString(token))
+}
+
+// saveWidgetTemplate flips the bot between bubble and inline variants.
+// Called by the rail's HTMX-driven radio.
+func (s *Server) saveWidgetTemplate(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	tmpl := strings.TrimSpace(r.PostFormValue("template"))
+	if err := storage.SetWidgetTemplate(r.Context(), s.db, id, tmpl); err != nil {
+		log.Printf("saveWidgetTemplate: %v", err)
+		http.Error(w, "Ungültige Variante", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// saveWidgetTheme persists the editor's theme tweaks (accent, welcome,
+// starters, etc.). Form fields → typed widget.Theme → JSON → bots row.
+func (s *Server) saveWidgetTheme(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Decode existing theme, then patch the fields the form submitted.
+	t := widget.DecodeTheme(bot.WidgetThemeJSON)
+	if v := r.PostForm.Get("accent"); v != "" {
+		t.Accent = strings.TrimSpace(v)
+	}
+	if v := r.PostForm.Get("welcome"); v != "" {
+		t.Welcome = strings.TrimSpace(v)
+	}
+	if v := r.PostForm.Get("name"); v != "" {
+		t.Name = strings.TrimSpace(v)
+	}
+	if v := r.PostForm["starter"]; len(v) > 0 {
+		// Drop empties; cap at 4 to match the brief.
+		clean := make([]string, 0, len(v))
+		for _, p := range v {
+			if s := strings.TrimSpace(p); s != "" {
+				clean = append(clean, s)
+			}
+			if len(clean) == 4 {
+				break
+			}
+		}
+		t.StarterPrompts = clean
+	}
+
+	encoded, err := widget.EncodeTheme(t)
+	if err != nil {
+		http.Error(w, "encode theme: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := storage.UpdateWidgetTheme(r.Context(), s.db, id, encoded); err != nil {
+		log.Printf("saveWidgetTheme: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // saveEmbedOrigins updates the origin allow-list (CSV).

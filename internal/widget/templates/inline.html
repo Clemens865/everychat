@@ -1,0 +1,203 @@
+{{define "inline"}}<!doctype html>
+<html lang="{{.Locale}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat</title>
+  <style>
+    {{.CSSVars}}
+    :root {
+      --w-bg: #f7f8fb;
+      --w-surface: #ffffff;
+      --w-text: #1a1d24;
+      --w-muted: #6b7385;
+      --w-border: #e6e8ee;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: var(--w-surface); color: var(--w-text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* Inline variant: no fixed position, no launcher, no close button.
+       Renders to fill its parent <iframe> dimensions — host page sizes
+       the iframe, the widget fills it. Designed to land inside a
+       service-card slot or a contact section on the customer page. */
+    .w {
+      display: flex; flex-direction: column;
+      height: 100vh; min-height: 0;
+      background: var(--w-surface);
+      border: 1px solid var(--w-border);
+      border-radius: var(--w-radius);
+      overflow: hidden;
+    }
+    .w-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      background: var(--w-accent); color: #fff;
+      flex: 0 0 auto;
+    }
+    .w-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(255,255,255,0.18);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600;
+    }
+    .w-id { flex: 1; line-height: 1.2; min-width: 0; }
+    .w-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .w-status { font-size: 10.5px; opacity: 0.85; }
+    .w-status::before { content: "● "; color: #6dd49a; }
+
+    .w-body {
+      flex: 1; min-height: 0; overflow-y: auto;
+      padding: 12px;
+      background: var(--w-bg);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .w-msg { max-width: 88%; display: flex; flex-direction: column; gap: 4px; }
+    .w-msg--user { align-self: flex-end; align-items: flex-end; }
+    .w-msg--bot  { align-self: flex-start; align-items: flex-start; }
+    .w-bubble {
+      padding: 8px 12px;
+      font-size: 13px; line-height: 1.5;
+      border-radius: var(--w-radius);
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .w-msg--user .w-bubble {
+      background: var(--w-accent); color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .w-msg--bot .w-bubble {
+      background: var(--w-surface); color: var(--w-text);
+      border: 1px solid var(--w-border);
+      border-bottom-left-radius: 4px;
+    }
+    .w-bubble p { margin: 0 0 6px; }
+    .w-bubble p:last-child { margin: 0; }
+    .w-bubble strong { font-weight: 600; }
+    .w-bubble code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px; }
+    .w-cursor {
+      display: inline-block; width: 5px; height: 13px;
+      background: var(--w-text); vertical-align: -2px;
+      animation: blink 1.05s steps(2,start) infinite;
+    }
+    @keyframes blink { to { visibility: hidden; } }
+
+    .w-sources details { font-size: 11px; color: var(--w-muted); margin-top: 4px; }
+    .w-sources summary { cursor: pointer; padding: 2px 0; }
+    .w-sources ul {
+      list-style: none; padding: 0; margin: 4px 0 0;
+      border-left: 2px solid var(--w-accent); padding-left: 8px;
+    }
+    .w-sources li { padding: 4px 0; border-top: 1px dashed var(--w-border); }
+    .w-sources li:first-child { border-top: 0; }
+
+    .w-starters { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0; }
+    .w-starter {
+      font-size: 11.5px; padding: 5px 9px;
+      background: var(--w-surface); border: 1px solid var(--w-border);
+      color: var(--w-text); border-radius: 12px;
+      cursor: pointer; font-family: inherit;
+    }
+    .w-starter:hover { border-color: var(--w-accent); color: var(--w-accent); }
+
+    .w-foot {
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      background: var(--w-surface);
+      border-top: 1px solid var(--w-border);
+    }
+    .w-input-shell {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--w-bg);
+      border: 1px solid var(--w-border);
+      border-radius: 16px;
+      padding: 4px 4px 4px 12px;
+    }
+    .w-input-shell:focus-within {
+      border-color: var(--w-accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--w-accent) 15%, transparent);
+    }
+    .w-input {
+      flex: 1; background: transparent; border: 0; outline: none;
+      font-family: inherit; font-size: 13px; color: var(--w-text);
+      padding: 6px 0;
+    }
+    .w-input::placeholder { color: var(--w-muted); }
+    .w-send {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--w-accent); color: #fff; border: 0;
+      cursor: pointer; font-size: 12px;
+    }
+    .w-send:hover { filter: brightness(1.1); }
+    .w-send:disabled { opacity: 0.5; cursor: wait; }
+
+    .w-consent {
+      font-size: 10.5px; color: var(--w-muted);
+      text-align: center; margin: 6px 0 0;
+    }
+    .w-consent a { color: var(--w-accent); text-decoration: none; }
+    .w-consent a:hover { text-decoration: underline; }
+
+    .w-poweredby {
+      font-size: 10px; color: var(--w-muted);
+      text-align: center; padding: 4px 0;
+      border-top: 1px solid var(--w-border);
+      letter-spacing: 0.04em;
+    }
+    .w-poweredby b { color: var(--w-text); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="w">
+    <header class="w-head">
+      <span class="w-avatar">{{.Avatar}}</span>
+      <div class="w-id">
+        <div class="w-name">{{.BotDisplayName}}</div>
+        <div class="w-status">Online</div>
+      </div>
+      {{/* No close button on inline — host page owns layout */}}
+    </header>
+
+    <div class="w-body" id="w-body" aria-live="polite">
+      <div class="w-msg w-msg--bot">
+        <div class="w-bubble">{{.Welcome}}</div>
+      </div>
+    </div>
+
+    {{if .StarterPrompts}}
+    <div class="w-starters" id="w-starters">
+      {{range .StarterPrompts}}<button class="w-starter" type="button">{{.}}</button>{{end}}
+    </div>
+    {{end}}
+
+    <footer class="w-foot">
+      <form class="w-input-shell" id="w-form" autocomplete="off">
+        <input class="w-input" id="w-input" name="message"
+               placeholder="Frage stellen …" required>
+        <button class="w-send" id="w-send" type="submit" aria-label="Senden">→</button>
+      </form>
+      {{if or .PrivacyURL .AGBURL}}
+      <p class="w-consent">
+        Mit dem Senden akzeptieren Sie
+        {{if .PrivacyURL}}<a href="{{.PrivacyURL}}" target="_blank" rel="noopener">Datenschutz</a>{{end}}
+        {{if and .PrivacyURL .AGBURL}} · {{end}}
+        {{if .AGBURL}}<a href="{{.AGBURL}}" target="_blank" rel="noopener">AGB</a>{{end}}.
+      </p>
+      {{end}}
+    </footer>
+    <div class="w-poweredby">Powered by <b>Everychat</b></div>
+  </div>
+
+  <script>window.__BOT_TOKEN__ = "{{.BotToken}}";</script>
+  <script src="/widget/assets/dompurify.min.js"></script>
+  <script src="/widget/assets/runtime.js"></script>
+  <script>
+    /* Inline variant: no parent-iframe to postMessage to. Override the
+       runtime's close handler — runtime.js looks for #w-close which we
+       don't render. Nothing to do. */
+  </script>
+</body>
+</html>{{end}}

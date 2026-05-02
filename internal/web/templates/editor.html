@@ -75,6 +75,51 @@
     </section>
 
     <section class="rail__group">
+      <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Verhalten</header>
+      <div class="rail__body">
+        <div class="rail__row">
+          <div class="rail__label">Variante</div>
+          <div class="tpl-radio">
+            <label>
+              <input type="radio" name="template" value="bubble"
+                     {{if eq .Bot.WidgetTemplate "bubble"}}checked{{end}}
+                     hx-post="/admin/bots/{{.Bot.ID}}/widget/template"
+                     hx-trigger="change"
+                     hx-swap="none">
+              <span>Bubble (bottom-right)</span>
+            </label>
+            <label>
+              <input type="radio" name="template" value="inline"
+                     {{if eq .Bot.WidgetTemplate "inline"}}checked{{end}}
+                     hx-post="/admin/bots/{{.Bot.ID}}/widget/template"
+                     hx-trigger="change"
+                     hx-swap="none">
+              <span>Inline (im Seiteninhalt)</span>
+            </label>
+          </div>
+        </div>
+        <div class="rail__row">
+          <div class="rail__label">Akzentfarbe</div>
+          <input class="rail__input" type="color"
+                 name="accent"
+                 value="{{.Theme.Accent}}"
+                 hx-post="/admin/bots/{{.Bot.ID}}/widget/theme"
+                 hx-trigger="change"
+                 hx-swap="none"
+                 style="height:32px;padding:2px;width:60px">
+        </div>
+        <div class="rail__row">
+          <div class="rail__label">Begrüßung</div>
+          <textarea class="rail__input" rows="2"
+                    name="welcome"
+                    hx-post="/admin/bots/{{.Bot.ID}}/widget/theme"
+                    hx-trigger="change"
+                    hx-swap="none">{{.Theme.Welcome}}</textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="rail__group">
       <header class="rail__head" onclick="this.parentElement.classList.toggle('rail__group--open')">Einbettung</header>
       <div class="rail__body">
         <div class="rail__row">
