@@ -21,7 +21,9 @@ import (
 	"time"
 
 	"github.com/clemenshoenig/everychat/internal/auth"
+	"github.com/clemenshoenig/everychat/internal/crawler"
 	"github.com/clemenshoenig/everychat/internal/eval"
+	"github.com/clemenshoenig/everychat/internal/ingest"
 	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
@@ -56,6 +58,7 @@ func New(db *sql.DB, links *auth.MagicLinks, sessions *auth.Sessions, gen *promp
 		{"login_sent.html", "layout.html"},
 		{"admin_home.html", "layout.html"},
 		{"editor.html", "layout_editor.html"},
+		{"wizard.html", "layout.html"},
 	}
 	pages := make(map[string]*template.Template, len(specs))
 	for _, sp := range specs {
@@ -184,12 +187,25 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// botRoutes is a tiny path router for /admin/bots/{id}/...
+// botRoutes is a tiny path router for /admin/bots/...
 // We avoid a third-party router for now; chi/mux can come in Phase 3.
 func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/admin/bots/")
 	if rest == "" {
 		http.NotFound(w, r)
+		return
+	}
+	// Wizard endpoints sit under /admin/bots/new — handle before
+	// numeric-id parsing.
+	if rest == "new" {
+		switch r.Method {
+		case http.MethodGet:
+			s.wizardStart(w, r)
+		case http.MethodPost:
+			s.wizardCreate(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 		return
 	}
 	parts := strings.Split(rest, "/")
@@ -237,6 +253,16 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 	case "sandbox":
 		if r.Method == http.MethodPost {
 			s.sandboxStream(w, r, id)
+			return
+		}
+	case "wizard/crawl":
+		if r.Method == http.MethodGet {
+			s.wizardCrawlStream(w, r, id)
+			return
+		}
+	case "wizard/draft":
+		if r.Method == http.MethodPost {
+			s.wizardDraft(w, r, id)
 			return
 		}
 	}
@@ -614,6 +640,181 @@ func (s *Server) saveCompliance(w http.ResponseWriter, r *http.Request, id int64
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ─── New-bot wizard ──────────────────────────────────────────────────
+//
+// Three steps live on a single page; HTMX swaps fragments in place.
+//
+//	GET  /admin/bots/new                       — step 1 (form)
+//	POST /admin/bots/new                       — creates bot, returns step 2
+//	GET  /admin/bots/{id}/wizard/crawl?d=…     — SSE crawl progress
+//	POST /admin/bots/{id}/wizard/draft         — runs prompt.Draft, returns step 3
+//
+// The wizard ends with "Zum Editor" → /admin/bots/{id}.
+
+func (s *Server) wizardStart(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "wizard.html", map[string]any{
+		"Title": "Neuer Bot",
+		"Email": auth.SessionEmail(r.Context()),
+	})
+}
+
+// wizardCreate creates the bot row and returns the step-2 SSE-listener
+// fragment. The browser reads ?bot_id from the response and connects to
+// /admin/bots/{id}/wizard/crawl.
+func (s *Server) wizardCreate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	domain := strings.TrimSpace(r.PostFormValue("domain"))
+	if name == "" || domain == "" {
+		http.Error(w, "Name und Domain sind erforderlich.", http.StatusBadRequest)
+		return
+	}
+	id, err := storage.CreateBot(r.Context(), s.db, name, domain)
+	if err != nil {
+		log.Printf("wizardCreate: %v", err)
+		http.Error(w, "Anlegen fehlgeschlagen.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// All user-derived values are HTML-escaped (domain) or fmt-printed
+	// from controlled types (id is int64); the literal markup is a
+	// constant string. %q on `domain` is for the JS string literal.
+	_, _ = fmt.Fprintf(w, //nolint:gosec // G705: domain HTMLEscaped, ids are int64
+		`
+<section id="wizard" class="card">
+  <h2 style="margin:0 0 12px">Schritt 2 von 3 — Inhalte werden gesammelt …</h2>
+  <p class="muted">Crawle <code>%s</code> · max 30 Seiten · 1 Anfrage pro Sekunde.</p>
+  <pre id="crawl-log" class="crawl-log"></pre>
+  <div id="crawl-stats" class="muted" style="margin-top:8px">Verbinde …</div>
+  <div id="crawl-actions" style="margin-top:16px;display:none">
+    <button class="ghost-btn"
+            hx-post="/admin/bots/%d/wizard/draft"
+            hx-target="#wizard"
+            hx-swap="outerHTML">
+      Schritt 3 — System-Prompt entwerfen lassen
+    </button>
+  </div>
+</section>
+<script>
+  (function(){
+    const log    = document.getElementById('crawl-log');
+    const stats  = document.getElementById('crawl-stats');
+    const actions = document.getElementById('crawl-actions');
+    const url = '/admin/bots/%d/wizard/crawl?d=' + encodeURIComponent(%q);
+    const es = new EventSource(url);
+    let pages = 0, chunks = 0;
+
+    es.addEventListener('page', e => {
+      pages++;
+      const line = document.createElement('div');
+      line.textContent = e.data;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+      const m = e.data.match(/(\d+)\s+chunk/);
+      if (m) chunks += parseInt(m[1], 10);
+      stats.textContent = pages + ' Seiten · ' + chunks + ' Chunks';
+    });
+    es.addEventListener('done', e => {
+      es.close();
+      stats.textContent = e.data;
+      actions.style.display = 'block';
+    });
+    es.addEventListener('error', e => {
+      stats.textContent = 'Fehler beim Crawl. Versuche es erneut.';
+      es.close();
+    });
+  })();
+</script>`,
+		template.HTMLEscapeString(domain), id, id, domain)
+}
+
+// wizardCrawlStream runs the ingest pipeline, forwarding each log line
+// as a `page` SSE event and emitting a `done` event with final stats.
+func (s *Server) wizardCrawlStream(w http.ResponseWriter, r *http.Request, id int64) {
+	domain := strings.TrimSpace(r.URL.Query().Get("d"))
+	if domain == "" {
+		http.Error(w, "missing ?d", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+
+	emit := func(event, data string) {
+		// SSE is text/event-stream, not HTML — the browser delivers `data`
+		// to the EventSource consumer as a plain string (we set it via
+		// .textContent, not .innerHTML, on the JS side). No XSS surface.
+		safe := strings.ReplaceAll(data, "\n", " ")
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, safe) //nolint:gosec // G705: SSE wire is not HTML
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	sseLines := ingest.NewSSELines(func(line string) {
+		emit("page", line)
+	})
+
+	pipe := ingest.New(s.db, s.llm)
+	pipe.Logger = sseLines
+
+	stats, err := pipe.Ingest(r.Context(), id, domain, crawler.Options{MaxPages: 30})
+	sseLines.Flush()
+	if err != nil {
+		emit("error", err.Error())
+		return
+	}
+	emit("done", fmt.Sprintf("Fertig — %d Seiten · %d Chunks · %d Embeddings-Calls",
+		stats.PagesFetched, stats.ChunksProduced, stats.EmbeddingsCalls))
+}
+
+// wizardDraft runs prompt.Draft and returns the step-3 fragment that
+// shows the drafted prompt with a "Zum Editor" button.
+func (s *Server) wizardDraft(w http.ResponseWriter, r *http.Request, id int64) {
+	if s.prompt == nil {
+		http.Error(w, "prompt generator not configured", http.StatusServiceUnavailable)
+		return
+	}
+	bot, err := storage.LoadBot(r.Context(), s.db, id)
+	if errors.Is(err, storage.ErrBotNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	draft, err := s.prompt.Draft(r.Context(), prompt.Bot{ID: bot.ID, Name: bot.Name})
+	if err != nil {
+		log.Printf("wizardDraft: %v", err)
+		http.Error(w, "Generierung fehlgeschlagen: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if err := storage.UpdateDraftPrompt(r.Context(), s.db, id, draft); err != nil {
+		log.Printf("wizardDraft persist: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `
+<section id="wizard" class="card">
+  <h2 style="margin:0 0 12px">Schritt 3 von 3 — Erster Entwurf</h2>
+  <p class="muted">Claude hat einen System-Prompt aus den Inhalten geschrieben. Du kannst ihn jetzt im Editor weiter bearbeiten.</p>
+  <pre class="prompt-preview">%s</pre>
+  <div style="display:flex;gap:8px;margin-top:16px">
+    <a class="ghost-btn" href="/admin/bots/%d">Zum Editor →</a>
+  </div>
+</section>`,
+		template.HTMLEscapeString(draft), id)
 }
 
 func (s *Server) renderLoginError(w http.ResponseWriter, r *http.Request, msg string) {

@@ -1,0 +1,30 @@
+{{define "content"}}
+<section id="wizard" class="card">
+  <h1>Neuen Bot anlegen</h1>
+  <p class="muted">Schritt 1 von 3 — Wer ist der Kunde?</p>
+
+  <form class="stack"
+        hx-post="/admin/bots/new"
+        hx-target="#wizard"
+        hx-swap="outerHTML">
+    <label>
+      <span>Name des Kunden</span>
+      <input type="text" name="name" required autofocus
+             placeholder="z. B. Steuerkanzlei Mustermann">
+    </label>
+    <label>
+      <span>Domain</span>
+      <input type="url" name="domain" required
+             placeholder="https://kanzlei-mustermann.de">
+    </label>
+    <p class="muted" style="font-size:12px;margin:0">
+      Im nächsten Schritt crawlen wir die Seite — bis zu 30 Inhaltsseiten, eine Anfrage pro Sekunde,
+      <code>robots.txt</code> wird respektiert.
+    </p>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button type="submit">Crawl starten</button>
+      <a href="/admin" class="muted" style="font-size:13px">Abbrechen</a>
+    </div>
+  </form>
+</section>
+{{end}}

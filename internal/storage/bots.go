@@ -117,6 +117,54 @@ func PromoteDraftToPublished(ctx context.Context, db *sql.DB, id int64) error {
 	return nil
 }
 
+// CreateBot inserts a new bot row under the first tenant (Phase 2 is
+// single-tenant) and returns the new id. The system_prompt and
+// draft_prompt start empty; the wizard fills draft_prompt at step 3.
+func CreateBot(ctx context.Context, db *sql.DB, name, domain string) (int64, error) {
+	if name == "" {
+		return 0, errors.New("CreateBot: name required")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("CreateBot: begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Pick the first tenant; create one if the table is empty.
+	var tenantID int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM tenants ORDER BY id LIMIT 1`).Scan(&tenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO tenants (name, domain) VALUES (?, ?)`,
+			"Default", "default.local")
+		if err != nil {
+			return 0, fmt.Errorf("CreateBot: seed tenant: %w", err)
+		}
+		tenantID, _ = res.LastInsertId()
+	} else if err != nil {
+		return 0, fmt.Errorf("CreateBot: lookup tenant: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO bots (tenant_id, name, system_prompt, draft_prompt, status, retention_days, eval_threshold)
+		VALUES (?, ?, '', '', 'draft', 90, 0.85)
+	`, tenantID, name)
+	if err != nil {
+		return 0, fmt.Errorf("CreateBot: insert: %w", err)
+	}
+	id, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("CreateBot: commit: %w", err)
+	}
+	committed = true
+	return id, nil
+}
+
 // SetCompliance updates the privacy / AGB URLs. Used by the settings rail.
 func SetCompliance(ctx context.Context, db *sql.DB, id int64, privacyURL, agbURL string) error {
 	_, err := db.ExecContext(ctx, `
