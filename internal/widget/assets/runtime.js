@@ -92,6 +92,55 @@
     return d.innerHTML;
   }
 
+  function appendLeadArtifact(parent, meta) {
+    // Inline form rendered after the assistant bubble. Submitting POSTs
+    // to /api/v1/lead with the bot token; the founder's webhook fires
+    // asynchronously via lead.Dispatcher.ProcessOnce.
+    var card = document.createElement("div");
+    card.className = "w-artifact";
+    card.innerHTML =
+      '<div class="w-artifact__head">Termin · Lead-Erfassung</div>' +
+      '<div class="w-artifact__title">Möchten Sie kontaktiert werden?</div>' +
+      '<p class="w-artifact__desc">Hinterlassen Sie kurz Ihre Kontaktdaten — wir melden uns innerhalb eines Werktags.</p>' +
+      '<div class="w-form">' +
+        '<input type="text" class="w-lead-name" placeholder="Ihr Name (optional)">' +
+        '<input type="email" class="w-lead-email" placeholder="ihre.adresse@firma.de" required>' +
+        '<button type="button" class="w-lead-submit">Anfrage senden</button>' +
+        '<div class="w-lead-status" style="font-size:11.5px;color:var(--w-muted);margin-top:4px"></div>' +
+      '</div>';
+    var emailIn = card.querySelector(".w-lead-email");
+    var nameIn = card.querySelector(".w-lead-name");
+    var btn = card.querySelector(".w-lead-submit");
+    var status = card.querySelector(".w-lead-status");
+    btn.addEventListener("click", function () {
+      var email = (emailIn.value || "").trim();
+      if (!email) { status.textContent = "Bitte E-Mail eingeben."; return; }
+      btn.disabled = true; status.textContent = "Wird gesendet …";
+      fetch("/api/v1/lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bot_token: token,
+          email: email,
+          name: (nameIn.value || "").trim(),
+          summary: meta && meta.summary ? meta.summary : "",
+        }),
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.text().then(function (t) {
+            status.textContent = "Fehler: " + res.status + " " + t;
+          });
+        }
+        status.textContent = "Vielen Dank! Wir melden uns in Kürze.";
+        emailIn.disabled = true; nameIn.disabled = true;
+      }).catch(function (err) {
+        status.textContent = "Netzwerkfehler. Bitte später erneut versuchen.";
+        btn.disabled = false;
+      });
+    });
+    parent.parentElement.appendChild(card);
+  }
+
   function appendSources(parent, sources) {
     if (!sources || !sources.length) return;
     var s = document.createElement("div");
@@ -183,6 +232,11 @@
             try {
               var meta = JSON.parse(data);
               appendSources(bot.bubble, meta.sources);
+            } catch (e) { /* ignore */ }
+          } else if (ev === "lead_capture") {
+            try {
+              var leadMeta = JSON.parse(data);
+              appendLeadArtifact(bot.bubble, leadMeta);
             } catch (e) { /* ignore */ }
           } else if (ev === "error") {
             bot.bubble.textContent = "Fehler: " + data;

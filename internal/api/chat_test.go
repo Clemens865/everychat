@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/clemenshoenig/everychat/internal/auth"
+	"github.com/clemenshoenig/everychat/internal/integrations"
+	"github.com/clemenshoenig/everychat/internal/lead"
 	"github.com/clemenshoenig/everychat/internal/llm"
+	"github.com/clemenshoenig/everychat/internal/moderation"
 	"github.com/clemenshoenig/everychat/internal/storage"
 )
 
@@ -70,7 +73,10 @@ func newServerWithBot(t *testing.T, devMode bool, originCSV string) (*Server, st
 	t.Cleanup(upstream.Close)
 	llmClient := llm.NewLiteLLMClient(upstream.URL)
 
-	return New(db, llmClient, devMode), token, upstream
+	mod := moderation.New()
+	det := lead.NewKeywordDetector(nil)
+	disp := lead.New(db, integrations.New(devMode))
+	return New(db, llmClient, mod, det, disp, devMode), token, upstream
 }
 
 func TestChat_HappyPath(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/llm"
+	"github.com/clemenshoenig/everychat/internal/moderation"
 	"github.com/clemenshoenig/everychat/internal/storage"
 )
 
@@ -65,6 +66,24 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if !s.rate.allow(clientIP(r)) {
 		http.Error(w, "rate limit exceeded — try again in a minute", http.StatusTooManyRequests)
 		return
+	}
+
+	// 0. Moderation gate (input). Phase 3 ships a Noop default; the
+	// real Llama Guard 3 8B impl arrives in Phase 5 — same Moderator
+	// interface, no caller changes.
+	if s.moderator != nil {
+		v, err := s.moderator.Check(r.Context(), moderation.RoleUser, req.Message)
+		if err != nil {
+			log.Printf("api/chat: moderation: %v", err)
+			http.Error(w, "moderation check failed", http.StatusInternalServerError)
+			return
+		}
+		if !v.Allowed {
+			http.Error(w,
+				"Diese Anfrage konnte nicht beantwortet werden. Bitte umformulieren oder den Support kontaktieren.",
+				http.StatusUnprocessableEntity)
+			return
+		}
 	}
 
 	// 1. Embed the question.
@@ -161,6 +180,22 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", string(doneJSON))
 	if flusher != nil {
 		flusher.Flush()
+	}
+
+	// 4b. Lead-intent check on the completed turn. If triggered, emit
+	// a `lead_capture` SSE event the widget runtime renders as an
+	// inline form (per blueprint §3.6 — artifact card in widget).
+	if s.intent != nil {
+		if m := s.intent.Detect(req.Message, answer.String()); m.Triggered {
+			leadEvt, _ := json.Marshal(map[string]any{
+				"reason":  m.Reason,
+				"summary": truncate(answer.String(), 480),
+			})
+			_, _ = fmt.Fprintf(w, "event: lead_capture\ndata: %s\n\n", string(leadEvt))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
 	}
 
 	// 5. Persist the visitor turn (best-effort).

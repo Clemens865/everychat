@@ -17,7 +17,10 @@ import (
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/email"
 	"github.com/clemenshoenig/everychat/internal/eval"
+	"github.com/clemenshoenig/everychat/internal/integrations"
+	"github.com/clemenshoenig/everychat/internal/lead"
 	"github.com/clemenshoenig/everychat/internal/llm"
+	"github.com/clemenshoenig/everychat/internal/moderation"
 	"github.com/clemenshoenig/everychat/internal/prompt"
 	"github.com/clemenshoenig/everychat/internal/storage"
 	"github.com/clemenshoenig/everychat/internal/web"
@@ -80,7 +83,16 @@ func main() {
 	// embed_origin_allow on a bot is treated as "any origin" (only safe
 	// for local dev).
 	devMode := getenv("EVERYCHAT_DEV_MODE", "0") == "1"
-	apiSrv := api.New(db, llmClient, devMode)
+
+	// Phase 3 Sprint 5 — lead capture pipeline. Webhook-only delivery
+	// (HubSpot deferred to Phase 5 per design memo). Moderator + intent
+	// detector behind clean interfaces; default impls are noop / keyword.
+	moderator := moderation.New()
+	intentDet := lead.NewKeywordDetector(nil)
+	webhookCli := integrations.New(devMode)
+	leadDispatcher := lead.New(db, webhookCli)
+
+	apiSrv := api.New(db, llmClient, moderator, intentDet, leadDispatcher, devMode)
 
 	// Widget surface — embed.js loader + iframe shell + static assets.
 	widgetSrv, err := widget.New(db)

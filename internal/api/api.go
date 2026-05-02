@@ -15,24 +15,32 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/clemenshoenig/everychat/internal/lead"
 	"github.com/clemenshoenig/everychat/internal/llm"
+	"github.com/clemenshoenig/everychat/internal/moderation"
 )
 
 // Server bundles dependencies needed by the visitor handlers.
 type Server struct {
-	db      *sql.DB
-	llm     *llm.LiteLLMClient
-	rate    *rateLimiter
-	devMode bool // when true, empty embed_origin_allow is treated as "any origin"
+	db        *sql.DB
+	llm       *llm.LiteLLMClient
+	rate      *rateLimiter
+	moderator moderation.Moderator
+	intent    lead.Detector
+	lead      *lead.Dispatcher
+	devMode   bool // when true, empty embed_origin_allow is treated as "any origin"
 }
 
 // New constructs a visitor-API Server.
-func New(db *sql.DB, llmClient *llm.LiteLLMClient, devMode bool) *Server {
+func New(db *sql.DB, llmClient *llm.LiteLLMClient, mod moderation.Moderator, det lead.Detector, dispatcher *lead.Dispatcher, devMode bool) *Server {
 	return &Server{
-		db:      db,
-		llm:     llmClient,
-		rate:    newRateLimiter(30, 60), // 30 reqs / 60s per IP
-		devMode: devMode,
+		db:        db,
+		llm:       llmClient,
+		rate:      newRateLimiter(30, 60), // 30 reqs / 60s per IP
+		moderator: mod,
+		intent:    det,
+		lead:      dispatcher,
+		devMode:   devMode,
 	}
 }
 
@@ -41,6 +49,7 @@ func New(db *sql.DB, llmClient *llm.LiteLLMClient, devMode bool) *Server {
 // is one cohesive owner.
 func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("/api/v1/chat", http.HandlerFunc(s.chat))
+	mux.Handle("/api/v1/lead", http.HandlerFunc(s.leadCapture))
 	mux.Handle("/api/v1/widget/", http.HandlerFunc(s.widgetConfig))
 }
 
