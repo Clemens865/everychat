@@ -14,6 +14,16 @@ model_list:
       model: anthropic/claude-sonnet-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # ─── LLM-as-judge (Phase 4) — cheap evaluator for golden-questions ─────
+  # Used by internal/eval/judge.go to score paraphrase-tolerant answers
+  # without keyword-perfect matching. claude-haiku is ~5× cheaper than
+  # sonnet which keeps eval_mode=llm_judge runs under the per-eval cost
+  # budget called out in PRD-phase-4.md.
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
   # ─── Embeddings (Phase 2 default: OpenAI 1536-dim) ──────────────────────
   - model_name: embed
     litellm_params:

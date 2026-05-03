@@ -175,6 +175,27 @@
           <div class="rail__value mono">{{printf "%.2f" .Bot.EvalThreshold}}</div>
         </div>
         <div class="rail__row">
+          <div class="rail__label">Eval-Modus</div>
+          <div class="tpl-radio">
+            <label>
+              <input type="radio" name="eval_mode" value="keyword"
+                     {{if ne .Bot.EvalMode "llm_judge"}}checked{{end}}
+                     hx-post="/admin/bots/{{.Bot.ID}}/eval/mode"
+                     hx-trigger="change"
+                     hx-swap="none">
+              <span>Keyword (schnell, deterministisch)</span>
+            </label>
+            <label>
+              <input type="radio" name="eval_mode" value="llm_judge"
+                     {{if eq .Bot.EvalMode "llm_judge"}}checked{{end}}
+                     hx-post="/admin/bots/{{.Bot.ID}}/eval/mode"
+                     hx-trigger="change"
+                     hx-swap="none">
+              <span>LLM-Judge (Paraphrasen-tolerant, ~5 ¢/Run)</span>
+            </label>
+          </div>
+        </div>
+        <div class="rail__row">
           <div class="rail__label">Letzter Lauf</div>
           <div class="rail__value" style="color:var(--muted)">{{.LastEvalLabel}}</div>
         </div>

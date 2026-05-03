@@ -267,6 +267,11 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 			s.runEvals(w, r, id)
 			return
 		}
+	case "eval/mode":
+		if r.Method == http.MethodPost {
+			s.saveEvalMode(w, r, id)
+			return
+		}
 	case "sandbox":
 		if r.Method == http.MethodPost {
 			s.sandboxStream(w, r, id)
@@ -896,6 +901,24 @@ func (s *Server) saveEmbedOrigins(w http.ResponseWriter, r *http.Request, id int
 	if err := storage.SetEmbedOriginAllow(r.Context(), s.db, id, csv); err != nil {
 		log.Printf("saveEmbedOrigins: %v", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// saveEvalMode flips the bot between keyword and LLM-judge scoring.
+// Whitelisted at the storage boundary (storage.SetEvalMode) so a UI
+// bug can't write a value that crashes the runner.
+func (s *Server) saveEvalMode(w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	mode := strings.TrimSpace(r.PostFormValue("eval_mode"))
+	if err := storage.SetEvalMode(r.Context(), s.db, id, mode); err != nil {
+		log.Printf("saveEvalMode: %v", err)
+		http.Error(w, "Ungültiger Eval-Modus", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

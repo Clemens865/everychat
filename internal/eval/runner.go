@@ -19,18 +19,39 @@ type Bot struct {
 	Name         string
 	SystemPrompt string
 	Threshold    float64
+	EvalMode     string // "keyword" | "llm_judge" — defaults to keyword when ""
 }
 
 // Runner executes a golden-questions file against one bot.
 type Runner struct {
-	db   *sql.DB
-	chat llm.Chat
-	now  func() time.Time
+	db      *sql.DB
+	chat    llm.Chat
+	keyword Scorer // used when bot.EvalMode == "keyword" (or empty)
+	judge   Scorer // used when bot.EvalMode == "llm_judge"; may be nil if no chat for judge
+	now     func() time.Time
 }
 
-// NewRunner wires a Runner to the DB and chat client.
+// NewRunner wires a Runner to the DB and chat client. Both scorers
+// are constructed eagerly: keyword is free, judge reuses the same
+// llm.Chat (LiteLLM routes to the claude-haiku alias by model param).
 func NewRunner(db *sql.DB, chat llm.Chat) *Runner {
-	return &Runner{db: db, chat: chat, now: time.Now}
+	return &Runner{
+		db:      db,
+		chat:    chat,
+		keyword: KeywordScorer{},
+		judge:   NewJudgeScorer(chat),
+		now:     time.Now,
+	}
+}
+
+// pickScorer returns the configured scorer for `mode`. Empty/unknown
+// falls through to keyword — the safe default that always works
+// regardless of LiteLLM availability.
+func (r *Runner) pickScorer(mode string) Scorer {
+	if mode == "llm_judge" && r.judge != nil {
+		return r.judge
+	}
+	return r.keyword
 }
 
 // SetClock overrides the wall clock for tests.
@@ -117,7 +138,7 @@ func (r *Runner) runOne(ctx context.Context, bot Bot, q Question) Item {
 	}
 
 	item.Answer = b.String()
-	item.Pass, item.Reasons = scoreAnswer(q, item.Answer)
+	item.Pass, item.Reasons = r.pickScorer(bot.EvalMode).Score(ctx, q, item.Answer)
 	item.FinishedAt = r.now().UTC()
 	return item
 }
@@ -142,8 +163,8 @@ func (r *Runner) persist(ctx context.Context, botID int64, rep *Report) error {
 func LoadBot(ctx context.Context, db *sql.DB, id int64) (Bot, error) {
 	var b Bot
 	err := db.QueryRowContext(ctx,
-		`SELECT id, name, system_prompt, eval_threshold FROM bots WHERE id = ?`, id,
-	).Scan(&b.ID, &b.Name, &b.SystemPrompt, &b.Threshold)
+		`SELECT id, name, system_prompt, eval_threshold, COALESCE(eval_mode, 'keyword') FROM bots WHERE id = ?`, id,
+	).Scan(&b.ID, &b.Name, &b.SystemPrompt, &b.Threshold, &b.EvalMode)
 	if err != nil {
 		return Bot{}, fmt.Errorf("load bot %d: %w", id, err)
 	}
@@ -155,8 +176,8 @@ func LoadBot(ctx context.Context, db *sql.DB, id int64) (Bot, error) {
 func LookupBotByName(ctx context.Context, db *sql.DB, name string) (Bot, error) {
 	var b Bot
 	err := db.QueryRowContext(ctx,
-		`SELECT id, name, system_prompt, eval_threshold FROM bots WHERE name = ?`, name,
-	).Scan(&b.ID, &b.Name, &b.SystemPrompt, &b.Threshold)
+		`SELECT id, name, system_prompt, eval_threshold, COALESCE(eval_mode, 'keyword') FROM bots WHERE name = ?`, name,
+	).Scan(&b.ID, &b.Name, &b.SystemPrompt, &b.Threshold, &b.EvalMode)
 	if err != nil {
 		return Bot{}, fmt.Errorf("load bot %q: %w", name, err)
 	}
