@@ -16,6 +16,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/clemenshoenig/everychat/internal/corpus"
 	"github.com/clemenshoenig/everychat/internal/llm"
 	"github.com/clemenshoenig/everychat/internal/storage"
 )
@@ -123,6 +124,16 @@ func (g *Generator) Draft(ctx context.Context, bot Bot) (string, error) {
 	result := strings.TrimSpace(out.String())
 	if result == "" {
 		return "", errors.New("prompt.Draft: empty completion")
+	}
+
+	// Phase 4 Sprint 3 — blend few-shot exemplars from the industry's
+	// corpus when bot.Industry is set. Best-effort: a corpus load
+	// error doesn't fail the draft (we already have a valid prompt
+	// from Claude); the blend is purely additive.
+	if strings.TrimSpace(bot.Industry) != "" && corpus.Valid(bot.Industry) {
+		if bundle, err := corpus.Load(corpus.Industry(bot.Industry)); err == nil && len(bundle.Exemplars) > 0 {
+			result = Blend(result, bundle.Exemplars, DefaultMaxExemplars)
+		}
 	}
 	return result, nil
 }

@@ -397,10 +397,11 @@ func (s *Server) generatePrompt(w http.ResponseWriter, r *http.Request, id int64
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	draft, err := s.prompt.Draft(r.Context(), prompt.Bot{
-		ID:   bot.ID,
-		Name: bot.Name,
-	})
+	pBot := prompt.Bot{ID: bot.ID, Name: bot.Name}
+	if bot.Industry.Valid {
+		pBot.Industry = bot.Industry.String
+	}
+	draft, err := s.prompt.Draft(r.Context(), pBot)
 	if err != nil {
 		log.Printf("generatePrompt: %v", err)
 		http.Error(w, "generation failed: "+err.Error(), http.StatusBadGateway)
@@ -1218,7 +1219,11 @@ func (s *Server) wizardDraft(w http.ResponseWriter, r *http.Request, id int64) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	draft, err := s.prompt.Draft(r.Context(), prompt.Bot{ID: bot.ID, Name: bot.Name})
+	wBot := prompt.Bot{ID: bot.ID, Name: bot.Name}
+	if bot.Industry.Valid {
+		wBot.Industry = bot.Industry.String
+	}
+	draft, err := s.prompt.Draft(r.Context(), wBot)
 	if err != nil {
 		log.Printf("wizardDraft: %v", err)
 		http.Error(w, "Generierung fehlgeschlagen: "+err.Error(), http.StatusBadGateway)
