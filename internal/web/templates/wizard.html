@@ -17,6 +17,16 @@
       <input type="url" name="domain" required
              placeholder="https://kanzlei-mustermann.de">
     </label>
+    <label>
+      <span>Branche</span>
+      <select name="industry" required>
+        <option value="" disabled selected>— wählen —</option>
+        {{range .Industries}}
+          <option value="{{.Value}}">{{.Label}}</option>
+        {{end}}
+      </select>
+      <span class="muted" style="font-size:12px">Lädt branchen-spezifische Goldfragen + Few-Shot-Beispiele aus dem DACH-Korpus.</span>
+    </label>
     <p class="muted" style="font-size:12px;margin:0">
       Im nächsten Schritt crawlen wir die Seite — bis zu 30 Inhaltsseiten, eine Anfrage pro Sekunde,
       <code>robots.txt</code> wird respektiert.

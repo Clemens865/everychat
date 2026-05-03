@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/clemenshoenig/everychat/internal/auth"
+	"github.com/clemenshoenig/everychat/internal/corpus"
 	"github.com/clemenshoenig/everychat/internal/crawler"
 	"github.com/clemenshoenig/everychat/internal/eval"
 	"github.com/clemenshoenig/everychat/internal/ingest"
@@ -1061,9 +1062,15 @@ func (s *Server) visitorErase(w http.ResponseWriter, r *http.Request, visitorID 
 // The wizard ends with "Zum Editor" → /admin/bots/{id}.
 
 func (s *Server) wizardStart(w http.ResponseWriter, r *http.Request) {
+	type industryOpt struct{ Value, Label string }
+	opts := make([]industryOpt, 0, 6)
+	for _, ind := range corpus.Industries() {
+		opts = append(opts, industryOpt{Value: string(ind), Label: ind.DisplayName()})
+	}
 	s.render(w, "wizard.html", map[string]any{
-		"Title": "Neuer Bot",
-		"Email": auth.SessionEmail(r.Context()),
+		"Title":      "Neuer Bot",
+		"Email":      auth.SessionEmail(r.Context()),
+		"Industries": opts,
 	})
 }
 
@@ -1078,8 +1085,13 @@ func (s *Server) wizardCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	domain := strings.TrimSpace(r.PostFormValue("domain"))
+	industry := strings.TrimSpace(r.PostFormValue("industry"))
 	if name == "" || domain == "" {
 		http.Error(w, "Name und Domain sind erforderlich.", http.StatusBadRequest)
+		return
+	}
+	if industry != "" && !corpus.Valid(industry) {
+		http.Error(w, "Ungültige Branche.", http.StatusBadRequest)
 		return
 	}
 	id, err := storage.CreateBot(r.Context(), s.db, name, domain)
@@ -1087,6 +1099,12 @@ func (s *Server) wizardCreate(w http.ResponseWriter, r *http.Request) {
 		log.Printf("wizardCreate: %v", err)
 		http.Error(w, "Anlegen fehlgeschlagen.", http.StatusInternalServerError)
 		return
+	}
+	if industry != "" {
+		if err := storage.SetIndustry(r.Context(), s.db, id, industry); err != nil {
+			log.Printf("wizardCreate: SetIndustry: %v", err)
+			// Non-fatal — the editor's settings rail can backfill later.
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1222,6 +1240,16 @@ func (s *Server) wizardDraft(w http.ResponseWriter, r *http.Request, id int64) {
 			}
 		} else {
 			log.Printf("wizardDraft theme suggest (best-effort): %v", err)
+		}
+	}
+
+	// Phase 4 Sprint 2: if the bot has an industry tag, seed its eval
+	// YAML from the corpus and flip eval_mode to llm_judge. Best-effort
+	// like the theme suggest above — corpus seeding failure shouldn't
+	// fail the wizard's primary "drafted prompt" deliverable.
+	if bot.Industry.Valid && corpus.Valid(bot.Industry.String) {
+		if err := corpus.Seed(r.Context(), s.db, bot.ID, bot.Name, corpus.Industry(bot.Industry.String)); err != nil {
+			log.Printf("wizardDraft corpus seed (best-effort): %v", err)
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
