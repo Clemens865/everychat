@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -32,6 +33,12 @@ type Bot struct {
 	EmbedOriginAllow string         // CSV of allowed origins; empty = dev-only
 	WebhookURL       sql.NullString
 	WebhookSecretSet bool // true if webhook_secret_hash IS NOT NULL
+
+	// Phase 4 — corpus + judge
+	Industry          sql.NullString // 'steuerberater' | 'handwerk' | …
+	EvalMode          string         // 'keyword' | 'llm_judge'
+	LastHoldoutScore  sql.NullFloat64
+	EvalQuestionsPath sql.NullString // tests/eval/<bot>.yaml after Seed runs
 }
 
 // ErrBotNotFound is returned when a Bot lookup misses.
@@ -46,7 +53,8 @@ func ListBots(ctx context.Context, db *sql.DB) ([]Bot, error) {
 		       created_at, updated_at, published_at,
 		       widget_template, widget_theme_json, embed_token_hash,
 		       embed_origin_allow, webhook_url,
-		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set
+		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set,
+		       industry, eval_mode, last_holdout_score, eval_questions_path
 		FROM bots
 		ORDER BY id ASC
 	`)
@@ -77,7 +85,8 @@ func LoadBot(ctx context.Context, db *sql.DB, id int64) (Bot, error) {
 		       created_at, updated_at, published_at,
 		       widget_template, widget_theme_json, embed_token_hash,
 		       embed_origin_allow, webhook_url,
-		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set
+		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set,
+		       industry, eval_mode, last_holdout_score, eval_questions_path
 		FROM bots WHERE id = ?
 	`, id)
 	b, err := scanBot(row)
@@ -208,11 +217,66 @@ func scanBot(s rowScanner) (Bot, error) {
 		&b.CreatedAt, &b.UpdatedAt, &b.PublishedAt,
 		&b.WidgetTemplate, &b.WidgetThemeJSON, &b.EmbedTokenHash,
 		&b.EmbedOriginAllow, &b.WebhookURL, &b.WebhookSecretSet,
+		&b.Industry, &b.EvalMode, &b.LastHoldoutScore, &b.EvalQuestionsPath,
 	)
 	if err != nil {
 		return Bot{}, err
 	}
 	return b, nil
+}
+
+// SetIndustry persists a bot's industry tag. The taxonomy enum is
+// enforced by the corpus loader at the call site; this helper accepts
+// any string + persists it to keep the storage layer dumb.
+func SetIndustry(ctx context.Context, db *sql.DB, id int64, industry string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET industry = NULLIF(?, ''), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		strings.TrimSpace(industry), id)
+	if err != nil {
+		return fmt.Errorf("SetIndustry: %w", err)
+	}
+	return nil
+}
+
+// SetEvalMode persists 'keyword' | 'llm_judge'. Whitelisted at storage
+// boundary so a UI bug can't write a junk value that crashes the runner.
+func SetEvalMode(ctx context.Context, db *sql.DB, id int64, mode string) error {
+	switch mode {
+	case "keyword", "llm_judge":
+	default:
+		return fmt.Errorf("SetEvalMode: unknown mode %q", mode)
+	}
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET eval_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		mode, id)
+	if err != nil {
+		return fmt.Errorf("SetEvalMode: %w", err)
+	}
+	return nil
+}
+
+// SetLastHoldoutScore stores a 0.0–1.0 float; called by the hold-out
+// evaluator. Surfaced on the dashboard.
+func SetLastHoldoutScore(ctx context.Context, db *sql.DB, id int64, score float64) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET last_holdout_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		score, id)
+	if err != nil {
+		return fmt.Errorf("SetLastHoldoutScore: %w", err)
+	}
+	return nil
+}
+
+// SetEvalQuestionsPath records which YAML file holds the bot's golden
+// questions. Set by corpus.Seed during the wizard.
+func SetEvalQuestionsPath(ctx context.Context, db *sql.DB, id int64, path string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE bots SET eval_questions_path = NULLIF(?, ''), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		strings.TrimSpace(path), id)
+	if err != nil {
+		return fmt.Errorf("SetEvalQuestionsPath: %w", err)
+	}
+	return nil
 }
 
 // SetEmbedTokenHash stores sha256(token) for a bot. The cleartext token is
@@ -236,7 +300,8 @@ func LookupBotByEmbedTokenHash(ctx context.Context, db *sql.DB, tokenHash string
 		       created_at, updated_at, published_at,
 		       widget_template, widget_theme_json, embed_token_hash,
 		       embed_origin_allow, webhook_url,
-		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set
+		       (webhook_secret_hash IS NOT NULL) AS webhook_secret_set,
+		       industry, eval_mode, last_holdout_score, eval_questions_path
 		FROM bots WHERE embed_token_hash = ?
 	`, tokenHash)
 	b, err := scanBot(row)
