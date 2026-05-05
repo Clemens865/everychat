@@ -317,6 +317,40 @@ func (s *Server) botRoutes(w http.ResponseWriter, r *http.Request) {
 			s.saveDSGVODocURL(w, r, id)
 			return
 		}
+	case "test-pane":
+		if r.Method == http.MethodGet {
+			s.testPanePartial(w, r, id)
+			return
+		}
+	case "test-pane/close":
+		if r.Method == http.MethodGet {
+			s.testPaneClose(w, r, id)
+			return
+		}
+	case "test-pane/run":
+		if r.Method == http.MethodPost {
+			s.testPaneRun(w, r, id)
+			return
+		}
+	case "adversary":
+		switch r.Method {
+		case http.MethodGet:
+			s.adversaryModalPartial(w, r, id)
+			return
+		case http.MethodPost:
+			s.adversaryStart(w, r, id)
+			return
+		}
+	case "adversary/close":
+		if r.Method == http.MethodGet {
+			s.adversaryClose(w, r, id)
+			return
+		}
+	case "adversary/latest":
+		if r.Method == http.MethodGet {
+			s.adversaryLatest(w, r, id)
+			return
+		}
 	}
 	http.NotFound(w, r)
 }

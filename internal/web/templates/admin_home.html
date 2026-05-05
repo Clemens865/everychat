@@ -7,15 +7,15 @@
 
   {{if .Bots}}
     {{range .Bots}}
-      <a class="bot-card" href="/admin/bots/{{.ID}}">
-        <div class="bot-card__top">
+      <article class="bot-card">
+        <a class="bot-card__title" href="/admin/bots/{{.ID}}">
           <span class="bot-card__name">{{.Name}}</span>
           {{if eq .Status "published"}}
             <span class="pill pill--published">Live</span>
           {{else}}
             <span class="pill pill--draft">Entwurf</span>
           {{end}}
-        </div>
+        </a>
         <div class="bot-card__meta">
           <span><strong>Schwelle:</strong> {{printf "%.2f" .EvalThreshold}}</span>
           <span><strong>Aufbewahrung:</strong> {{.RetentionDays}} Tage</span>
@@ -26,10 +26,23 @@
             <span><strong>Branche:</strong> {{.Industry.String}}</span>
           {{end}}
         </div>
-      </a>
+        <div class="bot-card__actions">
+          <a class="link" href="/admin/bots/{{.ID}}">Bearbeiten</a>
+          <button type="button" class="ghost-btn"
+                  hx-get="/admin/bots/{{.ID}}/test-pane"
+                  hx-target="#test-pane-{{.ID}}"
+                  hx-swap="innerHTML">Schnell-Test</button>
+          <button type="button" class="ghost-btn"
+                  hx-get="/admin/bots/{{.ID}}/adversary"
+                  hx-target="#adversary-pane-{{.ID}}"
+                  hx-swap="innerHTML">Adversary-Lauf</button>
+        </div>
+        <div id="test-pane-{{.ID}}" class="bot-card__pane"></div>
+        <div id="adversary-pane-{{.ID}}" class="bot-card__pane"></div>
+      </article>
     {{end}}
   {{else}}
-    <p class="muted">Noch keine Bots. Der Wizard zum Anlegen folgt in Sprint 6.</p>
+    <p class="muted">Noch keine Bots. <a href="/admin/bots/new">Lege jetzt einen an</a>.</p>
   {{end}}
 
   <form method="POST" action="/logout" class="logout">
