@@ -45,6 +45,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "eval-holdout" {
 		os.Exit(runHoldoutCLI(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "check-corpus" {
+		os.Exit(runCheckCorpusCLI(os.Args[2:]))
+	}
 
 	addr := getenv("EVERYCHAT_ADDR", defaultAddr)
 	dbPath := getenv("EVERYCHAT_DB_PATH", storage.DefaultDSN)
@@ -198,6 +201,32 @@ func runEvalCLI(args []string) int {
 		return 2
 	}
 	return 0
+}
+
+// runCheckCorpusCLI walks every industry in the taxonomy and validates
+// the embedded corpus YAML through corpus.Load. Empty industries
+// (placeholder content) are reported as ok-empty so the gate stays
+// green for non-seeded verticals; any schema/holdout-overlap error
+// fails the build. Wired to `make check-corpus`.
+func runCheckCorpusCLI(_ []string) int {
+	rc := 0
+	for _, ind := range corpus.Industries() {
+		bundle, err := corpus.Load(ind)
+		switch {
+		case errors.Is(err, corpus.ErrEmpty):
+			fmt.Printf("  %-16s  empty (placeholder)\n", ind)
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "  %-16s  FAIL  %v\n", ind, err)
+			rc = 1
+		default:
+			fmt.Printf("  %-16s  ok    questions=%d exemplars=%d holdout=%d\n",
+				ind, len(bundle.Questions), len(bundle.Exemplars), len(bundle.Holdout))
+		}
+	}
+	if rc != 0 {
+		fmt.Fprintln(os.Stderr, "check-corpus: at least one bundle failed validation")
+	}
+	return rc
 }
 
 // runHoldoutCLI is the `everychat eval-holdout` subcommand introduced

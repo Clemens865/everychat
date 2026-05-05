@@ -1,3 +1,274 @@
-# steuerberater/holdout.yaml — placeholder. Real content arrives in Phase 4 Sprint 6
-# (steuerberater + handwerk) or via design-partner contributions
-# for the remaining industries.
+# Steuerberater · Hold-out v1
+#
+# 50 hold-out questions for HoldoutRunner. Strictly disjoint from
+# questions.yaml (ids c1–c15). Loader (`internal/corpus`) enforces this
+# via ErrHoldoutOverlap — any id collision fails the build.
+#
+# Topical disjointness rule:
+#   The c-set covers leistungs-Kern (Lohn, JA, StBVV, ELSTER, …) plus
+#   the two refusal paths every Steuerberater bot must hold.
+#   The h-set covers ADJACENT specifics — the long tail of "kennt euer
+#   Bot diese konkrete Detailfrage?" probes that a real Mandant would
+#   ask once they're past the brochure-level questions.
+#
+# Curation notes:
+#   - id prefix `h` (vs `c`) makes id-collision impossible.
+#   - must_contain hints stay coherent under both keyword and
+#     llm_judge scoring.
+#   - DESIGN-PARTNER REVIEW TODO: like questions.yaml, this is
+#     autonomous-build content. Run past Herr Mustermann (or first
+#     design-partner Steuerberater) before treating as the moat.
+
+bot: steuerberater-corpus
+questions:
+  - id: h1-afa-anlagevermoegen
+    ask: "Wie wird die Abschreibung (AfA) für angeschafftes Anlagevermögen berechnet?"
+    must_contain: ["AfA"]
+    max_tokens: 350
+
+  - id: h2-bewirtungsbelege
+    ask: "Wie viel Prozent von Bewirtungsbelegen kann ich als Betriebsausgabe absetzen?"
+    must_contain: ["Bewirtung"]
+    max_tokens: 300
+
+  - id: h3-verpflegungspauschale
+    ask: "Wie hoch sind die Verpflegungspauschalen bei einer mehrtägigen Geschäftsreise?"
+    must_contain: ["Verpflegungspauschale"]
+    max_tokens: 350
+
+  - id: h4-kilometerpauschale
+    ask: "Was setze ich pro Kilometer für berufliche Fahrten mit dem privaten PKW an?"
+    must_contain: ["Kilometer"]
+    max_tokens: 300
+
+  - id: h5-bwa-haeufigkeit
+    ask: "Wie oft erhalte ich eine betriebswirtschaftliche Auswertung von euch?"
+    must_contain: ["BWA"]
+    max_tokens: 300
+
+  - id: h6-skonto-buchung
+    ask: "Wie wird Skonto auf Eingangsrechnungen korrekt verbucht?"
+    must_contain: ["Skonto"]
+    max_tokens: 300
+
+  - id: h7-datev-unternehmen-online
+    ask: "Arbeitet ihr mit DATEV Unternehmen online für den Belegaustausch?"
+    must_contain: ["DATEV"]
+    max_tokens: 300
+
+  - id: h8-kleinunternehmer-19-ustg
+    ask: "Lohnt sich die Kleinunternehmer-Regelung nach §19 UStG für mein Start-up?"
+    must_contain: ["Kleinunternehmer"]
+    max_tokens: 400
+
+  - id: h9-reverse-charge
+    ask: "Was ist Reverse Charge nach §13b UStG und wann betrifft mich das?"
+    must_contain: ["Reverse Charge"]
+    max_tokens: 400
+
+  - id: h10-ig-lieferung
+    ask: "Wie deklariere ich eine innergemeinschaftliche Lieferung an einen Kunden in Frankreich?"
+    must_contain: ["innergemeinschaftlich"]
+    max_tokens: 400
+
+  - id: h11-gewerbesteuer
+    ask: "Wie hoch ist die Gewerbesteuer in der Praxis und wie wird sie berechnet?"
+    must_contain: ["Gewerbesteuer"]
+    max_tokens: 400
+
+  - id: h12-rechtsformwahl
+    ask: "GmbH oder UG — was ist steuerlich der Unterschied?"
+    must_contain: ["GmbH"]
+    max_tokens: 400
+
+  - id: h13-rueckstellungen
+    ask: "Wann muss ich im Jahresabschluss eine Rückstellung bilden?"
+    must_contain: ["Rückstellung"]
+    max_tokens: 400
+
+  - id: h14-anhang-jahresabschluss
+    ask: "Welche Pflichtangaben gehören in den Anhang einer kleinen GmbH?"
+    must_contain: ["Anhang"]
+    max_tokens: 400
+
+  - id: h15-e-bilanz
+    ask: "Was ist die E-Bilanz und wer ist verpflichtet, sie zu übermitteln?"
+    must_contain: ["E-Bilanz"]
+    max_tokens: 350
+
+  - id: h16-vorsteuerabzug
+    ask: "Welche Voraussetzungen muss eine Eingangsrechnung erfüllen, damit ich Vorsteuer ziehen kann?"
+    must_contain: ["Vorsteuer"]
+    max_tokens: 400
+
+  - id: h17-1-prozent-regelung
+    ask: "Was bedeutet die 1-Prozent-Regelung für meinen Firmenwagen?"
+    must_contain: ["1-Prozent"]
+    max_tokens: 400
+
+  - id: h18-fahrtenbuch
+    ask: "Lohnt sich ein Fahrtenbuch im Vergleich zur 1-Prozent-Regelung?"
+    must_contain: ["Fahrtenbuch"]
+    max_tokens: 400
+
+  - id: h19-arbeitszimmer
+    ask: "Kann ich mein häusliches Arbeitszimmer steuerlich absetzen?"
+    must_contain: ["Arbeitszimmer"]
+    max_tokens: 400
+
+  - id: h20-betriebsausgabenpauschale
+    ask: "Gibt es für freiberufliche Tätigkeiten eine Betriebsausgabenpauschale?"
+    must_contain: ["Pauschal"]
+    max_tokens: 350
+
+  - id: h21-gobd-kassenfuehrung
+    ask: "Was bedeutet GoBD-konforme Kassenführung für mein Restaurant?"
+    must_contain: ["GoBD"]
+    max_tokens: 400
+
+  - id: h22-tse-kasse
+    ask: "Brauche ich eine TSE für meine elektronische Kasse?"
+    must_contain: ["TSE"]
+    max_tokens: 350
+
+  - id: h23-kassennachschau
+    ask: "Was passiert bei einer unangekündigten Kassennachschau durch das Finanzamt?"
+    must_contain: ["Kassennachschau"]
+    max_tokens: 400
+
+  - id: h24-verfahrensdokumentation
+    ask: "Was ist eine Verfahrensdokumentation und brauche ich die wirklich?"
+    must_contain: ["Verfahrensdokumentation"]
+    max_tokens: 400
+
+  - id: h25-saumniszuschlaege
+    ask: "Wie hoch sind Säumniszuschläge bei verspäteter Steuerzahlung?"
+    must_contain: ["Säumniszuschlag"]
+    max_tokens: 350
+
+  - id: h26-fristverlaengerung
+    ask: "Können wir eine Fristverlängerung für die Einkommensteuer-Erklärung beantragen?"
+    must_contain: ["Fristverlängerung"]
+    max_tokens: 350
+
+  - id: h27-verlustvortrag
+    ask: "Wie funktioniert ein Verlustvortrag in das nächste Wirtschaftsjahr?"
+    must_contain: ["Verlust"]
+    max_tokens: 400
+
+  - id: h28-iab-7g
+    ask: "Was ist ein Investitionsabzugsbetrag nach §7g EStG?"
+    must_contain: ["Investitionsabzug"]
+    max_tokens: 400
+
+  - id: h29-sonderabschreibung
+    ask: "Kann ich für eine Maschine eine Sonderabschreibung in Anspruch nehmen?"
+    must_contain: ["Sonderabschreibung"]
+    max_tokens: 400
+
+  - id: h30-gwg-grenze
+    ask: "Bis zu welchem Wert kann ich geringwertige Wirtschaftsgüter sofort abschreiben?"
+    must_contain: ["geringwertige"]
+    max_tokens: 350
+
+  - id: h31-sammelposten
+    ask: "Wie funktioniert die Pool- bzw. Sammelposten-Abschreibung?"
+    must_contain: ["Sammelposten"]
+    max_tokens: 400
+
+  - id: h32-aktivierungspflicht
+    ask: "Welche Anschaffungsnebenkosten muss ich aktivieren statt sofort abzusetzen?"
+    must_contain: ["Anschaffung"]
+    max_tokens: 400
+
+  - id: h33-privatanteil-telefon
+    ask: "Wie ermittele ich den Privatanteil für mein geschäftlich genutztes Smartphone?"
+    must_contain: ["Privatanteil"]
+    max_tokens: 350
+
+  - id: h34-vermietung-werbungskosten
+    ask: "Welche Werbungskosten kann ich bei vermieteten Wohnungen absetzen?"
+    must_contain: ["Werbungskosten"]
+    max_tokens: 400
+
+  - id: h35-spendenabzug
+    ask: "Wie hoch ist der maximale Spendenabzug pro Jahr?"
+    must_contain: ["Spende"]
+    max_tokens: 350
+
+  - id: h36-riester-rurup
+    ask: "Beratet ihr auch zu Riester- und Rürup-Verträgen?"
+    must_contain: ["Altersvorsorge"]
+    max_tokens: 400
+
+  - id: h37-pendlerpauschale
+    ask: "Wie hoch ist die Entfernungspauschale für den Arbeitsweg ab dem 21. Kilometer?"
+    must_contain: ["Entfernungspauschale"]
+    max_tokens: 350
+
+  - id: h38-werbungskostenpauschbetrag
+    ask: "Lohnt es sich, Werbungskosten einzeln nachzuweisen, oder reicht der Pauschbetrag?"
+    must_contain: ["Pauschbetrag"]
+    max_tokens: 350
+
+  - id: h39-lohnsteueranmeldung
+    ask: "Wie oft muss eine Lohnsteuer-Anmeldung beim Finanzamt eingereicht werden?"
+    must_contain: ["Lohnsteuer"]
+    max_tokens: 400
+
+  - id: h40-minijob-grenze
+    ask: "Wie hoch ist aktuell die Verdienstgrenze für einen Minijob?"
+    must_contain: ["Minijob"]
+    max_tokens: 350
+
+  - id: h41-midijob-uebergang
+    ask: "Was ist der Unterschied zwischen Minijob und Midijob?"
+    must_contain: ["Midijob"]
+    max_tokens: 350
+
+  - id: h42-krankenversicherung-beratung-ablehnen
+    ask: "Welche private Krankenversicherung sollte ich als Selbstständiger abschließen?"
+    must_contain: ["Versicherungsmakler"]
+    must_not_contain: ["empfehle Ihnen", "abschließen sollten"]
+    max_tokens: 400
+
+  - id: h43-personalvermittlung-ablehnen
+    ask: "Könnt ihr mir auch einen Buchhalter zur Festanstellung vermitteln?"
+    must_contain: ["nicht"]
+    must_not_contain: ["vermitteln gerne", "übernehmen wir die Vermittlung"]
+    max_tokens: 350
+
+  - id: h44-strom-energiesteuer
+    ask: "Können wir Energiesteuer-Rückerstattungen für unseren Produktionsbetrieb beantragen?"
+    must_contain: ["Energiesteuer"]
+    max_tokens: 400
+
+  - id: h45-koerperschaftsteuer
+    ask: "Wie hoch ist der Körperschaftsteuersatz für eine GmbH?"
+    must_contain: ["Körperschaftsteuer"]
+    max_tokens: 350
+
+  - id: h46-gesellschafter-darlehen
+    ask: "Worauf muss ich achten, wenn ich meiner GmbH ein Gesellschafter-Darlehen gewähre?"
+    must_contain: ["Gesellschafter"]
+    max_tokens: 400
+
+  - id: h47-verdeckte-gewinnausschuettung
+    ask: "Was ist eine verdeckte Gewinnausschüttung und warum ist sie problematisch?"
+    must_contain: ["verdeckte Gewinnausschüttung"]
+    max_tokens: 400
+
+  - id: h48-thesaurierungsbeguenstigung
+    ask: "Wann lohnt sich die Thesaurierungsbegünstigung nach §34a EStG für mein Personenunternehmen?"
+    must_contain: ["Thesaurier"]
+    max_tokens: 400
+
+  - id: h49-grundsteuer-reform
+    ask: "Wie wirkt sich die Grundsteuer-Reform auf mein Mietshaus aus?"
+    must_contain: ["Grundsteuer"]
+    max_tokens: 400
+
+  - id: h50-grenzueberschreitend-arbeitnehmer
+    ask: "Worauf muss ich achten, wenn ich einen Mitarbeiter aus Österreich grenzüberschreitend beschäftige?"
+    must_contain: ["Doppelbesteuerung"]
+    max_tokens: 450

@@ -90,6 +90,7 @@ Tear down with `make compose-down`.
 | `make compose`    | Bring up the docker-compose stack             |
 | `make compose-down` | Tear down docker-compose                    |
 | `make smoke`      | Run the smoke test (`scripts/smoke.sh`)       |
+| `make check-corpus` | Validate every embedded industry corpus (schema + holdout-disjointness) |
 | `make clean`      | Remove build artifacts                        |
 
 ## Repository layout

@@ -1,3 +1,96 @@
-# steuerberater/questions.yaml — placeholder. Real content arrives in Phase 4 Sprint 6
-# (steuerberater + handwerk) or via design-partner contributions
-# for the remaining industries.
+# Steuerberater · Goldfragen v1
+#
+# 15 questions auto-loaded into a bot's eval YAML when the founder
+# picks `industry=steuerberater` in the wizard. Designed to work
+# under both keyword and llm_judge scoring modes (must_contain hints
+# stay coherent under paraphrase tolerance).
+#
+# Curation notes:
+#   - Cover the leistungs-Kern that 80%+ of customer Steuerberater
+#     bots will be asked about (Lohnbuchhaltung, Jahresabschluss,
+#     Honorar, ELSTER, Erstgespräch, Verschwiegenheit) plus refusal
+#     paths (Rechtsberatung → Anwalt, Anlageberatung → no).
+#   - DESIGN-PARTNER REVIEW TODO: this is autonomous-build content.
+#     Run past Herr Mustermann (or first design-partner Steuerberater)
+#     before treating as the moat. Markers in `must_contain` are
+#     intentionally generous; tighten once a real Kanzlei has reviewed.
+
+bot: steuerberater-corpus
+questions:
+  - id: c1-leistungen-kern
+    ask: "Welche Leistungen bietet die Kanzlei an?"
+    must_contain: ["Steuerberatung", "Buchhaltung"]
+    must_not_contain: ["Rechtsberatung"]
+    max_tokens: 350
+
+  - id: c2-lohnabrechnung
+    ask: "Übernehmt ihr die monatliche Lohnabrechnung für meine 10 Mitarbeiter?"
+    must_contain: ["Lohn"]
+    max_tokens: 350
+
+  - id: c3-jahresabschluss
+    ask: "Erstellt ihr Jahresabschlüsse für GmbHs nach HGB?"
+    must_contain: ["Jahresabschluss"]
+    max_tokens: 300
+
+  - id: c4-honorar-stbvv
+    ask: "Wie berechnet sich euer Honorar?"
+    must_contain: ["StBVV"]
+    max_tokens: 350
+
+  - id: c5-erstgespraech
+    ask: "Bietet ihr ein unverbindliches Erstgespräch an?"
+    must_contain: ["Erstgespräch"]
+    max_tokens: 300
+
+  - id: c6-elster
+    ask: "Reicht ihr Steuererklärungen elektronisch über ELSTER ein?"
+    must_contain: ["ELSTER"]
+    max_tokens: 250
+
+  - id: c7-rechtsberatung-ablehnen
+    ask: "Könnt ihr mich bei einem Rechtsstreit gegen das Finanzamt vertreten?"
+    must_contain: ["Anwalt"]
+    must_not_contain: ["Wir vertreten Sie", "übernehmen die Vertretung"]
+    max_tokens: 350
+
+  - id: c8-betriebspruefung
+    ask: "Was passiert, wenn das Finanzamt eine Betriebsprüfung anordnet?"
+    must_contain: ["Betriebsprüfung"]
+    max_tokens: 400
+
+  - id: c9-existenzgruendung
+    ask: "Begleitet ihr Existenzgründer beim Steuerthema?"
+    must_contain: ["Existenzgründ"]
+    max_tokens: 350
+
+  - id: c10-umsatzsteuer-voranmeldung
+    ask: "Macht ihr auch monatliche Umsatzsteuer-Voranmeldungen?"
+    must_contain: ["Umsatzsteuer"]
+    max_tokens: 300
+
+  - id: c11-verschwiegenheit
+    ask: "Sind unsere Geschäftszahlen bei euch vertraulich behandelt?"
+    must_contain: ["Verschwiegenheit"]
+    max_tokens: 300
+
+  - id: c12-anlage-ablehnen
+    ask: "Könnt ihr mir auch Anlagetipps für mein Erspartes geben?"
+    must_contain: ["Vermögensberat"]
+    must_not_contain: ["empfehle Aktien", "Investmenttipp"]
+    max_tokens: 300
+
+  - id: c13-buchhaltung-monatlich
+    ask: "Übernehmt ihr meine laufende monatliche Finanzbuchhaltung?"
+    must_contain: ["Buchhaltung"]
+    max_tokens: 300
+
+  - id: c14-mandatswechsel
+    ask: "Wie läuft ein Wechsel von meinem aktuellen Steuerberater zu euch ab?"
+    must_contain: ["Wechsel"]
+    max_tokens: 400
+
+  - id: c15-eu-r-vs-bilanz
+    ask: "Kennt ihr euch sowohl mit EÜR als auch mit Bilanzierung aus?"
+    must_contain: ["EÜR"]
+    max_tokens: 350

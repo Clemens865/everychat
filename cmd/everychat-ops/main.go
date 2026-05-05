@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/clemenshoenig/everychat/internal/corpus"
 	"github.com/clemenshoenig/everychat/internal/crawler"
 	"github.com/clemenshoenig/everychat/internal/eval"
 	"github.com/clemenshoenig/everychat/internal/ingest"
@@ -49,6 +50,11 @@ func main() {
 		}
 	case "crawl":
 		if err := runCrawl(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "set-industry":
+		if err := runSetIndustry(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -194,6 +200,57 @@ func runCrawl(args []string) error {
 	return nil
 }
 
+// runSetIndustry sets a bot's industry column so the hold-out runner
+// + few-shot prompt assembly can pick the right corpus bundle. Added
+// in Phase 4 Sprint 6 so seeded demo bots (created before the wizard
+// got an industry picker) can be promoted into the corpus pipeline
+// without a manual SQL update.
+func runSetIndustry(args []string) error {
+	fs := flag.NewFlagSet("set-industry", flag.ContinueOnError)
+	botID := fs.Int64("bot-id", 0, "bot id (mutually exclusive with --bot-name)")
+	botName := fs.String("bot-name", "", "bot name (e.g. steuerkanzlei-demo)")
+	industryFlag := fs.String("industry", "", "industry tag (one of corpus.Industries())")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *industryFlag == "" {
+		return errors.New("--industry is required")
+	}
+	if !corpus.Valid(*industryFlag) {
+		return fmt.Errorf("unknown industry %q", *industryFlag)
+	}
+	if *botID == 0 && *botName == "" {
+		return errors.New("either --bot-id or --bot-name is required")
+	}
+
+	dbPath := os.Getenv("EVERYCHAT_DB_PATH")
+	if dbPath == "" {
+		dbPath = storage.DefaultDSN
+	}
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	var bot eval.Bot
+	if *botID != 0 {
+		bot, err = eval.LoadBot(ctx, db, *botID)
+	} else {
+		bot, err = eval.LookupBotByName(ctx, db, *botName)
+	}
+	if err != nil {
+		return err
+	}
+
+	if err := storage.SetIndustry(ctx, db, bot.ID, *industryFlag); err != nil {
+		return err
+	}
+	fmt.Printf("✔ bot %q (id=%d) industry set to %q\n", bot.Name, bot.ID, *industryFlag)
+	return nil
+}
+
 // pickProvisioner returns a Live or Stub Provisioner depending on
 // EVERYCHAT_HETZNER_LIVE. Phase 1 always returns the stub; Live still
 // returns ErrLiveDisabled until Phase 5.
@@ -217,6 +274,7 @@ func usage(w *os.File) {
 		"  list       list customer instances (stubbed in Phase 1)",
 		"  eval       --bot-name=<n> --questions=<path>  run golden-questions and print a scorecard",
 		"  crawl      --bot-name=<n> --domain=<url>      crawl a site and fill the bot's KB (re-run replaces chunks)",
+		"  set-industry --bot-name=<n> --industry=<tag>  set a bot's industry so hold-out + few-shot pick its corpus",
 	}
 	for _, l := range lines {
 		_, _ = fmt.Fprintln(w, l)

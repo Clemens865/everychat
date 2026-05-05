@@ -1,4 +1,4 @@
-.PHONY: dev test build lint clean caddy compose compose-down smoke help
+.PHONY: dev test build lint clean caddy compose compose-down smoke check-corpus help
 
 BIN_DIR := bin
 EVERYCHAT_BIN := $(BIN_DIR)/everychat
@@ -41,3 +41,6 @@ compose-down: ## Tear down the docker-compose stack
 
 smoke: ## Run the smoke test against a running compose stack
 	./scripts/smoke.sh
+
+check-corpus: ## Validate every embedded industry corpus (schema + holdout-disjointness)
+	$(GO) run ./cmd/everychat check-corpus

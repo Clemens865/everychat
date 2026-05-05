@@ -1,3 +1,278 @@
-# handwerk/holdout.yaml — placeholder. Real content arrives in Phase 4 Sprint 6
-# (steuerberater + handwerk) or via design-partner contributions
-# for the remaining industries.
+# Handwerk · Hold-out v1
+#
+# 50 hold-out questions for HoldoutRunner. Strictly disjoint from
+# questions.yaml (ids c1–c15). Loader (`internal/corpus`) enforces this
+# via ErrHoldoutOverlap — any id collision fails the build.
+#
+# Topical disjointness rule:
+#   The c-set covers Kunden-Kern (Notdienst, Kostenvoranschlag,
+#   Stundensatz, Gewährleistung, …) plus the two refusal paths every
+#   Handwerk bot must hold (Versicherungsregulierung, Eigenreparatur-
+#   Beratung am Telefon).
+#   The h-set covers ADJACENT specifics — the long tail of "kennt euer
+#   Bot diese konkrete Detailfrage?" probes that a Endkunde mit
+#   konkretem Sanierungsproblem stellen würde.
+#
+# Curation notes:
+#   - id prefix `h` (vs `c`) makes id-collision impossible.
+#   - must_contain hints stay coherent under both keyword and
+#     llm_judge scoring.
+#   - DESIGN-PARTNER REVIEW TODO: like questions.yaml, this is
+#     autonomous-build content. Run past the first design-partner
+#     SHK-Betrieb before treating as the moat.
+
+bot: handwerk-corpus
+questions:
+  - id: h1-waermepumpe-eignung
+    ask: "Lohnt sich eine Wärmepumpe in einem 1970er Altbau?"
+    must_contain: ["Wärmepumpe"]
+    max_tokens: 450
+
+  - id: h2-hydraulischer-abgleich
+    ask: "Was ist ein hydraulischer Abgleich und brauche ich den wirklich?"
+    must_contain: ["hydraulische"]
+    max_tokens: 400
+
+  - id: h3-brennwert-vs-hybrid
+    ask: "Soll ich eine reine Gas-Brennwerttherme oder eine Hybrid-Lösung mit Wärmepumpe nehmen?"
+    must_contain: ["Brennwert"]
+    max_tokens: 450
+
+  - id: h4-solarthermie-warmwasser
+    ask: "Reicht Solarthermie für die Warmwasserbereitung im Sommer?"
+    must_contain: ["Solar"]
+    max_tokens: 400
+
+  - id: h5-fussbodenheizung-nachruesten
+    ask: "Wie aufwendig ist es, eine Fußbodenheizung nachträglich einzubauen?"
+    must_contain: ["Fußbodenheizung"]
+    max_tokens: 450
+
+  - id: h6-pufferspeicher-groesse
+    ask: "Wie groß muss der Pufferspeicher für eine Wärmepumpe in einem Einfamilienhaus sein?"
+    must_contain: ["Pufferspeicher"]
+    max_tokens: 400
+
+  - id: h7-trinkwasserverordnung
+    ask: "Was schreibt die Trinkwasserverordnung für Mehrfamilienhäuser vor?"
+    must_contain: ["Trinkwasser"]
+    max_tokens: 400
+
+  - id: h8-legionellenpruefung
+    ask: "Wie oft muss eine Legionellenprüfung durchgeführt werden?"
+    must_contain: ["Legionellen"]
+    max_tokens: 400
+
+  - id: h9-wasserzaehler-wechsel
+    ask: "Wer wechselt eigentlich den Wasserzähler — wir oder die Stadtwerke?"
+    must_contain: ["Wasserzähler"]
+    max_tokens: 350
+
+  - id: h10-rauchwarnmelder-pflicht
+    ask: "Sind Rauchwarnmelder in NRW Pflicht — und wer muss sie warten?"
+    must_contain: ["Rauchwarnmelder"]
+    max_tokens: 400
+
+  - id: h11-spuelkasten-undicht
+    ask: "Mein Spülkasten läuft permanent nach — könnt ihr das reparieren?"
+    must_contain: ["Spülkasten"]
+    max_tokens: 350
+
+  - id: h12-druckverlust-pruefung
+    ask: "Wie wird eine Druckverlustprüfung in einer Wasserleitung durchgeführt?"
+    must_contain: ["Druck"]
+    max_tokens: 400
+
+  - id: h13-kfw-foerderung-heizung
+    ask: "Welche KfW-Programme gibt es für eine neue Heizung im Bestandsbau?"
+    must_contain: ["KfW"]
+    max_tokens: 450
+
+  - id: h14-isfp-sanierungsfahrplan
+    ask: "Was ist ein iSFP und bringt der mir mehr Förderung?"
+    must_contain: ["Sanierungsfahrplan"]
+    max_tokens: 400
+
+  - id: h15-energieberater-pflicht
+    ask: "Brauche ich für die BAFA-Förderung zwingend einen Energieberater?"
+    must_contain: ["Energieberater"]
+    max_tokens: 400
+
+  - id: h16-geg-uebersicht
+    ask: "Was schreibt das Gebäudeenergiegesetz GEG für meinen Heizungstausch vor?"
+    must_contain: ["GEG"]
+    max_tokens: 450
+
+  - id: h17-oelheizung-austauschpflicht
+    ask: "Ich habe eine 28 Jahre alte Ölheizung — muss ich die nach GEG austauschen?"
+    must_contain: ["Ölheizung"]
+    max_tokens: 450
+
+  - id: h18-niedertemperaturkessel
+    ask: "Mein Heizkessel ist ein Niedertemperatur-Kessel — fällt der unter die Austauschpflicht?"
+    must_contain: ["Niedertemperatur"]
+    max_tokens: 400
+
+  - id: h19-schornsteinfeger-abnahme
+    ask: "Muss der Schornsteinfeger jede neue Heizung abnehmen?"
+    must_contain: ["Schornsteinfeger"]
+    max_tokens: 400
+
+  - id: h20-wartung-haeufigkeit
+    ask: "Wie oft sollte eine Gastherme gewartet werden?"
+    must_contain: ["Wartung"]
+    max_tokens: 350
+
+  - id: h21-ersatzteilversorgung
+    ask: "Wie lange bekommt man bei euch Ersatzteile für ein 15 Jahre altes Modell?"
+    must_contain: ["Ersatzteil"]
+    max_tokens: 400
+
+  - id: h22-anodentausch-speicher
+    ask: "Soll die Magnesium-Anode im Warmwasserspeicher regelmäßig getauscht werden?"
+    must_contain: ["Anode"]
+    max_tokens: 400
+
+  - id: h23-ausdehnungsgefaess
+    ask: "Wie prüft man, ob das Druckausdehnungsgefäß der Heizung noch in Ordnung ist?"
+    must_contain: ["Ausdehnungs"]
+    max_tokens: 400
+
+  - id: h24-smart-home-anbindung
+    ask: "Könnt ihr mir eine Heizungssteuerung über die Smart-Home-App einrichten?"
+    must_contain: ["Smart"]
+    max_tokens: 400
+
+  - id: h25-thermostat-funk
+    ask: "Lohnen sich smarte Funk-Thermostate für jeden Heizkörper?"
+    must_contain: ["Thermostat"]
+    max_tokens: 400
+
+  - id: h26-waermemengenzaehler
+    ask: "Brauche ich für die Heizkostenabrechnung im Mehrfamilienhaus Wärmemengenzähler?"
+    must_contain: ["Wärmemengenzähler"]
+    max_tokens: 400
+
+  - id: h27-heizungspumpe-tausch
+    ask: "Wann lohnt sich der Tausch der alten Umwälzpumpe gegen eine Hocheffizienzpumpe?"
+    must_contain: ["Pumpe"]
+    max_tokens: 400
+
+  - id: h28-kfw-zuschuss-vs-kredit
+    ask: "Was ist der Unterschied zwischen einem KfW-Zuschuss und einem KfW-Kredit?"
+    must_contain: ["Zuschuss"]
+    max_tokens: 400
+
+  - id: h29-foerderung-weg
+    ask: "Wie funktioniert die Heizungsförderung für eine Eigentümergemeinschaft?"
+    must_contain: ["Eigentümer"]
+    max_tokens: 450
+
+  - id: h30-vermieter-heizungstausch
+    ask: "Mein Vermieter will die Heizung tauschen — wer trägt die Kosten?"
+    must_contain: ["Vermieter"]
+    max_tokens: 450
+
+  - id: h31-mietminderung-refusal
+    ask: "Wir haben seit drei Tagen keine Heizung — können wir die Miete kürzen?"
+    must_contain: ["Mietrecht"]
+    must_not_contain: ["Sie können kürzen", "Mietminderung von"]
+    max_tokens: 400
+
+  - id: h32-eigenleistung-foerderfaehig
+    ask: "Sind Eigenleistungen bei einer geförderten Sanierung anerkennungsfähig?"
+    must_contain: ["Eigenleistung"]
+    max_tokens: 400
+
+  - id: h33-mwst-handwerkerleistung
+    ask: "Stellt ihr meine Rechnung mit 7 oder mit 19 Prozent Mehrwertsteuer aus?"
+    must_contain: ["19"]
+    max_tokens: 400
+
+  - id: h34-altheizung-entsorgung
+    ask: "Was passiert mit meiner alten Ölheizung nach dem Ausbau — entsorgt ihr die?"
+    must_contain: ["Entsorgung"]
+    max_tokens: 400
+
+  - id: h35-notdienst-zuschlag
+    ask: "Wie hoch ist der Zuschlag, wenn ich euch nachts oder am Wochenende rufe?"
+    must_contain: ["Zuschlag"]
+    max_tokens: 400
+
+  - id: h36-anzahlung-hoehe
+    ask: "Wie hoch ist üblicherweise die Anzahlung bei einem Heizungstausch?"
+    must_contain: ["Anzahlung"]
+    max_tokens: 400
+
+  - id: h37-skonto-sofortzahlung
+    ask: "Bekomme ich Skonto, wenn ich die Rechnung sofort überweise?"
+    must_contain: ["Skonto"]
+    max_tokens: 350
+
+  - id: h38-schwarzarbeit-refusal
+    ask: "Wenn ich bar zahle und keine Rechnung brauche, geht das günstiger?"
+    must_contain: ["Rechnung"]
+    must_not_contain: ["dann sparen wir uns die Steuer", "ohne Rechnung"]
+    max_tokens: 350
+
+  - id: h39-wasserschaden-versicherung-refusal
+    ask: "Können wir einen Versicherungsschaden direkt mit eurer Hilfe regulieren?"
+    must_contain: ["Gutachter"]
+    must_not_contain: ["regulieren wir für Sie", "übernehmen die Schadenregulierung"]
+    max_tokens: 400
+
+  - id: h40-asbest-altrohre
+    ask: "In meinem Altbau sind möglicherweise asbesthaltige Rohre verbaut — wie geht ihr damit um?"
+    must_contain: ["Asbest"]
+    max_tokens: 450
+
+  - id: h41-kfz-versicherung-refusal
+    ask: "Mein Werkstattauto wurde beschädigt — meldet ihr das meiner Kfz-Versicherung?"
+    must_contain: ["nicht"]
+    must_not_contain: ["Wir melden den Schaden"]
+    max_tokens: 350
+
+  - id: h42-bauleitung
+    ask: "Übernehmt ihr auch die komplette Bauleitung für ein neues Bad?"
+    must_contain: ["Bauleitung"]
+    max_tokens: 400
+
+  - id: h43-shk-innung-schlichtung
+    ask: "Wenn wir uns über das Ergebnis nicht einig werden — gibt es eine neutrale Schlichtungsstelle?"
+    must_contain: ["Schlichtungs"]
+    max_tokens: 400
+
+  - id: h44-photovoltaik-beratung
+    ask: "Beratet ihr auch zu Photovoltaik-Anlagen aufs Dach?"
+    must_contain: ["Photovoltaik"]
+    max_tokens: 400
+
+  - id: h45-wallbox-installation
+    ask: "Könnt ihr mir eine Wallbox für mein E-Auto in der Garage installieren?"
+    must_contain: ["Wallbox"]
+    max_tokens: 400
+
+  - id: h46-foerderung-wallbox
+    ask: "Gibt es aktuell eine Förderung für die Wallbox-Installation?"
+    must_contain: ["Förderung"]
+    max_tokens: 400
+
+  - id: h47-haustechnik-jahrescheck
+    ask: "Macht ihr einen jährlichen Komplett-Check der gesamten Haustechnik?"
+    must_contain: ["Check"]
+    max_tokens: 350
+
+  - id: h48-mehrere-betriebe-koordination
+    ask: "Mein Bad-Umbau braucht Fliesenleger und Elektriker — koordiniert ihr die Gewerke?"
+    must_contain: ["Gewerke"]
+    max_tokens: 400
+
+  - id: h49-zeitfenster-termin
+    ask: "Bekomme ich beim Termin ein konkretes Zeitfenster oder muss ich den ganzen Tag zuhause sein?"
+    must_contain: ["Zeitfenster"]
+    max_tokens: 350
+
+  - id: h50-kueche-anschluss
+    ask: "Schließt ihr auch eine neue Spülmaschine an, wenn die Möbel schon stehen?"
+    must_contain: ["Anschluss"]
+    max_tokens: 350

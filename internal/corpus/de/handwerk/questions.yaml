@@ -1,3 +1,98 @@
-# handwerk/questions.yaml — placeholder. Real content arrives in Phase 4 Sprint 6
-# (steuerberater + handwerk) or via design-partner contributions
-# for the remaining industries.
+# Handwerk · Goldfragen v1
+#
+# 15 questions auto-loaded into a bot's eval YAML when the founder
+# picks `industry=handwerk` in the wizard. Tuned for a generic
+# Heizung-Sanitär-Elektro Handwerksbetrieb — the most common Phase-2
+# customer profile in DACH SMB. Smaller niches (Tischler, Dachdecker,
+# Maler) overlap on ≥80 % of these probes, which is why the c-set is
+# kept generic and topic-broad rather than verticalised.
+#
+# Curation notes:
+#   - Cover the Kunden-Kern that 80%+ of customer Handwerk bots will
+#     be asked about (Notdienst, Kostenvoranschlag, Anfahrt, Stunden­
+#     satz, Gewährleistung, Servicegebiet, Meisterbetrieb, §35a EStG)
+#     plus refusal paths (Versicherungsregulierung, Eigenreparatur-
+#     Beratung am Telefon).
+#   - DESIGN-PARTNER REVIEW TODO: this is autonomous-build content.
+#     Run past the first design-partner Handwerksbetrieb before
+#     treating as the moat. Markers in `must_contain` are intentionally
+#     generous; tighten once a real Betrieb has reviewed.
+
+bot: handwerk-corpus
+questions:
+  - id: c1-leistungen-kern
+    ask: "Welche Leistungen bietet euer Betrieb an?"
+    must_contain: ["Heizung"]
+    max_tokens: 350
+
+  - id: c2-notdienst
+    ask: "Habt ihr einen Notdienst, wenn nachts ein Rohrbruch passiert?"
+    must_contain: ["Notdienst"]
+    max_tokens: 350
+
+  - id: c3-erstbesichtigung
+    ask: "Ist die erste Besichtigung vor Ort kostenlos oder kostet das schon was?"
+    must_contain: ["Besichtigung"]
+    max_tokens: 350
+
+  - id: c4-anfahrtspauschale
+    ask: "Berechnet ihr eine Anfahrtspauschale, oder ist die Anfahrt im Stundensatz enthalten?"
+    must_contain: ["Anfahrt"]
+    max_tokens: 350
+
+  - id: c5-stundensatz
+    ask: "Was kostet bei euch eine Handwerkerstunde?"
+    must_contain: ["Stundensatz"]
+    max_tokens: 350
+
+  - id: c6-materialaufschlag
+    ask: "Schlagt ihr auf das Material noch etwas drauf, oder gebt ihr den Einkaufspreis weiter?"
+    must_contain: ["Material"]
+    max_tokens: 350
+
+  - id: c7-gewaehrleistung
+    ask: "Wie lange habe ich Gewährleistung auf eure Arbeit?"
+    must_contain: ["Gewährleistung"]
+    max_tokens: 350
+
+  - id: c8-paragraph-35a-estg
+    ask: "Kann ich die Rechnung für euren Einsatz bei der Steuer absetzen?"
+    must_contain: ["35a"]
+    max_tokens: 400
+
+  - id: c9-servicegebiet
+    ask: "In welchem Umkreis seid ihr unterwegs?"
+    must_contain: ["Umkreis"]
+    max_tokens: 300
+
+  - id: c10-meisterbetrieb
+    ask: "Seid ihr ein eingetragener Meisterbetrieb?"
+    must_contain: ["Meister"]
+    max_tokens: 300
+
+  - id: c11-bafa-foerderung
+    ask: "Helft ihr mir auch bei der BAFA-Förderung für eine neue Heizung?"
+    must_contain: ["BAFA"]
+    max_tokens: 400
+
+  - id: c12-festpreis
+    ask: "Macht ihr Festpreis-Angebote oder rechnet ihr nach Stunden ab?"
+    must_contain: ["Festpreis"]
+    max_tokens: 350
+
+  - id: c13-wartungsvertrag
+    ask: "Bietet ihr Wartungsverträge für die Heizung an?"
+    must_contain: ["Wartung"]
+    max_tokens: 350
+
+  - id: c14-versicherungsschaden-ablehnen
+    ask: "Könnt ihr meinen Wasserschaden direkt mit meiner Gebäudeversicherung abrechnen?"
+    must_contain: ["Versicherung"]
+    must_not_contain: ["regulieren wir", "übernehmen die Abrechnung mit der Versicherung"]
+    max_tokens: 400
+
+  - id: c15-eigenreparatur-ablehnen
+    ask: "Könnt ihr mir am Telefon erklären, wie ich meinen Heizkörper selbst entlüfte?"
+    must_contain: ["Termin"]
+    must_not_contain: ["Schritt 1", "Drehen Sie das Ventil"]
+    max_tokens: 400
