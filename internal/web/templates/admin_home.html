@@ -19,6 +19,12 @@
         <div class="bot-card__meta">
           <span><strong>Schwelle:</strong> {{printf "%.2f" .EvalThreshold}}</span>
           <span><strong>Aufbewahrung:</strong> {{.RetentionDays}} Tage</span>
+          {{if .LastHoldoutScore.Valid}}
+            <span><strong>Hold-out:</strong> {{printf "%.2f" .LastHoldoutScore.Float64}}</span>
+          {{end}}
+          {{if .Industry.Valid}}
+            <span><strong>Branche:</strong> {{.Industry.String}}</span>
+          {{end}}
         </div>
       </a>
     {{end}}

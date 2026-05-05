@@ -15,6 +15,7 @@ import (
 
 	"github.com/clemenshoenig/everychat/internal/api"
 	"github.com/clemenshoenig/everychat/internal/auth"
+	"github.com/clemenshoenig/everychat/internal/corpus"
 	"github.com/clemenshoenig/everychat/internal/email"
 	"github.com/clemenshoenig/everychat/internal/eval"
 	"github.com/clemenshoenig/everychat/internal/integrations"
@@ -40,6 +41,9 @@ func main() {
 	// stay consolidated under a single binary.
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
 		os.Exit(runEvalCLI(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "eval-holdout" {
+		os.Exit(runHoldoutCLI(os.Args[2:]))
 	}
 
 	addr := getenv("EVERYCHAT_ADDR", defaultAddr)
@@ -187,6 +191,74 @@ func runEvalCLI(args []string) int {
 	rep, err := eval.NewRunner(db, chat).Run(ctx, bot, *questions)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "eval: %v\n", err)
+		return 1
+	}
+	eval.PrintScorecard(os.Stdout, rep)
+	if !rep.MeetsThreshold() {
+		return 2
+	}
+	return 0
+}
+
+// runHoldoutCLI is the `everychat eval-holdout` subcommand introduced
+// in Phase 4 Sprint 5 — runs the bot against the industry's blind
+// hold-out questions (loaded from internal/corpus/de/<industry>/holdout.yaml)
+// through the visitor RAG pipeline. Persists last_holdout_score on
+// the bot. Exits 2 if the score falls below threshold so CI can
+// distinguish quality-gate failure from infrastructure failure (1).
+func runHoldoutCLI(args []string) int {
+	fs := flag.NewFlagSet("eval-holdout", flag.ContinueOnError)
+	botName := fs.String("bot-name", "", "bot name (required)")
+	industryFlag := fs.String("industry", "", "industry tag (required; one of corpus.Industries())")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *botName == "" || *industryFlag == "" {
+		fmt.Fprintln(os.Stderr, "usage: everychat eval-holdout --bot-name=<n> --industry=<tag>")
+		return 2
+	}
+	if !corpus.Valid(*industryFlag) {
+		fmt.Fprintf(os.Stderr, "unknown industry %q (try one of: ", *industryFlag)
+		for i, ind := range corpus.Industries() {
+			if i > 0 {
+				fmt.Fprint(os.Stderr, ", ")
+			}
+			fmt.Fprint(os.Stderr, string(ind))
+		}
+		fmt.Fprintln(os.Stderr, ")")
+		return 2
+	}
+
+	bundle, err := corpus.Load(corpus.Industry(*industryFlag))
+	if err != nil && !errors.Is(err, corpus.ErrEmpty) {
+		fmt.Fprintf(os.Stderr, "load corpus: %v\n", err)
+		return 1
+	}
+	if bundle == nil || len(bundle.Holdout) == 0 {
+		fmt.Fprintf(os.Stderr, "industry %q has no hold-out questions yet — Sprint 6 fills steuerberater + handwerk.\n", *industryFlag)
+		return 1
+	}
+
+	dbPath := getenv("EVERYCHAT_DB_PATH", storage.DefaultDSN)
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open db: %v\n", err)
+		return 1
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	bot, err := eval.LookupBotByName(ctx, db, *botName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load bot: %v\n", err)
+		return 1
+	}
+
+	chat := llm.NewLiteLLMClient(getenv("EVERYCHAT_LITELLM_URL", defaultLiteLLMURL))
+	runner := eval.NewHoldoutRunner(db, chat, chat) // same client doubles as embedder
+	rep, err := runner.Run(ctx, bot, bundle.Holdout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hold-out run: %v\n", err)
 		return 1
 	}
 	eval.PrintScorecard(os.Stdout, rep)
