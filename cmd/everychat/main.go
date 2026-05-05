@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clemenshoenig/everychat/internal/adversary"
 	"github.com/clemenshoenig/everychat/internal/api"
 	"github.com/clemenshoenig/everychat/internal/auth"
 	"github.com/clemenshoenig/everychat/internal/corpus"
@@ -47,6 +48,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "check-corpus" {
 		os.Exit(runCheckCorpusCLI(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "adversary" {
+		os.Exit(runAdversaryCLI(os.Args[2:]))
 	}
 
 	addr := getenv("EVERYCHAT_ADDR", defaultAddr)
@@ -295,4 +299,90 @@ func runHoldoutCLI(args []string) int {
 		return 2
 	}
 	return 0
+}
+
+// runAdversaryCLI is the `everychat adversary` subcommand introduced
+// in Phase 5 Sprint 1. Runs a tester-LLM red-team against a bot for
+// the given persona, persists transcript + verdict, and prints the
+// run-id + final verdict. Exit codes: 0=PASS verdict, 2=FAIL or
+// non-PASS verdict (cost_exhausted, error, JUDGE_ERROR), 1=infra.
+func runAdversaryCLI(args []string) int {
+	fs := flag.NewFlagSet("adversary", flag.ContinueOnError)
+	botName := fs.String("bot-name", "", "bot name (required)")
+	personaID := fs.String("persona", "", "persona id (required; one of adversary.Personas())")
+	turns := fs.Int("turns", 8, "max victim turns")
+	maxCostEUR := fs.Float64("max-cost-eur", 0.50, "hard cap on accumulated LLM spend in EUR")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *botName == "" || *personaID == "" {
+		fmt.Fprintln(os.Stderr, "usage: everychat adversary --bot-name=<n> --persona=<id> [--turns=N] [--max-cost-eur=X.XX]")
+		fmt.Fprintln(os.Stderr, "available personas:")
+		if personas, err := adversary.Personas(); err == nil {
+			for _, p := range personas {
+				fmt.Fprintf(os.Stderr, "  %-22s %s\n", p.ID, p.Name)
+			}
+		}
+		return 2
+	}
+	persona, err := adversary.LoadPersona(*personaID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 2
+	}
+	if *turns <= 0 {
+		fmt.Fprintln(os.Stderr, "--turns must be > 0")
+		return 2
+	}
+	if *maxCostEUR <= 0 {
+		fmt.Fprintln(os.Stderr, "--max-cost-eur must be > 0")
+		return 2
+	}
+	maxCostCents := int64(*maxCostEUR * 100)
+
+	dbPath := getenv("EVERYCHAT_DB_PATH", storage.DefaultDSN)
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open db: %v\n", err)
+		return 1
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	evalBot, err := eval.LookupBotByName(ctx, db, *botName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load bot: %v\n", err)
+		return 1
+	}
+	storageBot, err := storage.LoadBot(ctx, db, evalBot.ID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load bot: %v\n", err)
+		return 1
+	}
+
+	chat := llm.NewLiteLLMClient(getenv("EVERYCHAT_LITELLM_URL", defaultLiteLLMURL))
+	runner := adversary.NewRunner(db, chat, chat)
+	rep, err := runner.Run(ctx, storageBot, *persona, adversary.Options{
+		TurnCap: *turns, MaxCostCents: maxCostCents,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "run: %v\n", err)
+		if rep != nil {
+			fmt.Printf("partial run-id=%d status=%s\n", rep.RunID, rep.Status)
+		}
+		return 1
+	}
+
+	fmt.Printf("\n=== Adversary Run %d  (bot=%s, persona=%s) ===\n", rep.RunID, *botName, persona.ID)
+	for _, t := range rep.Turns {
+		fmt.Printf("\n[%s · turn %d]\n%s\n", t.Role, t.TurnIndex, t.Content)
+	}
+	fmt.Printf("\n--- status:  %s\n", rep.Status)
+	fmt.Printf("--- verdict: %s\n", rep.Verdict)
+	fmt.Printf("--- spend:   %d cents (cap %d)\n", rep.TotalCostCents, maxCostCents)
+
+	if rep.Status == adversary.StatusCompleted && len(rep.Verdict) >= 4 && rep.Verdict[:4] == "PASS" {
+		return 0
+	}
+	return 2
 }
